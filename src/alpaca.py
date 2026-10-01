@@ -14,8 +14,8 @@ NY = "America/New_York"
 
 
 def _headers() -> dict:
-    return {"APCA-API-KEY-ID": os.environ["ALPACA_API_KEY"],
-            "APCA-API-SECRET-KEY": os.environ["ALPACA_API_SECRET"]}
+    return {"APCA-API-KEY-ID": os.environ["ALPACA_API_KEY"].strip(),
+            "APCA-API-SECRET-KEY": os.environ["ALPACA_API_SECRET"].strip()}
 
 
 def _get(url: str, params: dict) -> dict:
@@ -24,6 +24,10 @@ def _get(url: str, params: dict) -> dict:
         if r.status_code == 429 or r.status_code >= 500:
             time.sleep(2 ** attempt)
             continue
+        if r.status_code == 401:  # say which key shape was sent, never the key itself
+            k, sec = os.environ["ALPACA_API_KEY"].strip(), os.environ["ALPACA_API_SECRET"].strip()
+            print(f"Alpaca 401: key starts {k[:2]!r} len {len(k)}, secret len {len(sec)} "
+                  "(expect key 20 chars starting AK/PK, secret 40)")
         r.raise_for_status()
         return r.json()
     r.raise_for_status()
