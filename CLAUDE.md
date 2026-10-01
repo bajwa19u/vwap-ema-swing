@@ -27,6 +27,9 @@ low on Claude usage. Don't re-read research/ unless the task is research.
 - Earnings skip-2 + exit-before-gap: better t-stat and win % in both splits, lower drawdown. Live.
 - Bigger pool (74 names) rejected: worse on explore; holdout gain was hindsight in the added names.
 - Top 10 beats top 15/20 in both splits.
+- Blocking entries on the first bars of the week (VWAP reset) hurt explore badly (+2.97 -> +1.78 per trade). Monday entries stay.
+- Owner: bull-market focus; bear-year weakness (2018, 2022 in reports/longtest.md) is accepted, not to be fixed.
+- Cards: BUY CALL / TAKE PROFIT / STOP LOSS + daily recap (src/recap.py, recap.yml). Replay: replay.yml.
 - Earnings dates: src/earnings.py, Yahoo, cached in state/earnings.json, fails open.
 
 ## Running

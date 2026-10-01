@@ -77,21 +77,23 @@ def evaluate(h: pd.DataFrame, mkt: pd.DataFrame, p: Params, cur: dict | None, ev
     return exit_info, entry_info
 
 
-def run(dry: bool = False) -> None:
-    cfg = load_cfg()
-    state = json.loads(STATE.read_text()) if STATE.exists() else {}
-    mkt_sym = cfg.get("market", "SPY")
-    pools = {s["name"]: s["universe"]["pool"] for s in cfg["strategies"]}
-    symbols = sorted({mkt_sym, *(t for pool in pools.values() for t in pool)})
-    data = alpaca.bars_30m(symbols, days=cfg.get("history_days", 300))
-    hours = {t: complete_hours(df) for t, df in data.items() if len(df) > 100}
-    mkt = hours[mkt_sym]
-    events = earnings.load(sorted(set(symbols) - {mkt_sym}))
-    posts, closed = [], []
+EVENTS = ROOT / "state" / "events.csv"
+
+
+def bar_close(t: pd.Timestamp) -> pd.Timestamp:
+    return min(t + pd.Timedelta(hours=1), t.normalize() + pd.Timedelta(hours=16))
+
+
+def scan_once(cfg: dict, state: dict, hours: dict, mkt: pd.DataFrame, events: dict,
+              live: bool = True, asof: pd.Timestamp | None = None) -> list[dict]:
+    """One decision pass over data that ends at the latest completed bar.
+    Mutates `state`; returns entry/exit events. Shared by live and replay."""
+    out = []
     for s in cfg["strategies"]:
         p = Params(**s["params"])
         u = s["universe"]
-        active = top_by_vol({t: hours[t] for t in u["pool"] if t in hours}, u["top_k"], u["vol_lookback_days"])
+        active = top_by_vol({t: hours[t] for t in u["pool"] if t in hours}, u["top_k"],
+                            u["vol_lookback_days"], asof=asof)
         held = [k.split(":", 1)[1] for k in state if k.startswith(s["name"] + ":")]
         for t in sorted(set(active) | set(held)):
             if t not in hours:
@@ -102,37 +104,65 @@ def run(dry: bool = False) -> None:
             key = f"{s['name']}:{t}"
             cur = state.get(key)
             exit_info, entry_info = evaluate(h, mkt, p, cur, events.get(t))
+            bt = h.index[-1]
             if exit_info:
                 px, why = float(exit_info[0]), exit_info[1]
                 ret = cur["side"] * (px / cur["price"] - 1)
-                posts.append(discord.exit_card(s, t, cur, px, why, ret))
-                closed.append(dict(strategy=s["name"], ticker=t, side=cur["side"],
-                                   entry_time=cur["entry_time"], entry=cur["price"],
-                                   exit_time=str(h.index[-1]), exit=px, reason=why, ret=ret))
+                days = (bar_close(bt) - pd.Timestamp(cur["signal_time"])).total_seconds() / 86400
+                out.append(dict(kind="exit", strategy=s["name"], t=t, side=cur["side"], entry=cur["price"],
+                                price=px, ret=ret, days=days, why=why, bar=str(bt),
+                                entry_time=cur["entry_time"]))
                 state.pop(key)
             if entry_info and t in active:
                 x, ph_time, ind = entry_info
                 price = float(h["close"].iloc[-1])
                 stop = price - x["side"] * p.stop_atr * ind.atr if p.stop_atr else None
-                tgt = price + x["side"] * p.target_atr * ind.atr if p.target_atr else None
-                opt = alpaca.option_pick(t, x["side"], price, **cfg["options"]) if cfg.get("options") else None
-                rec = dict(side=int(x["side"]), price=price,
-                           stop=float(stop) if stop is not None else None,
-                           target=float(tgt) if tgt is not None else None,
-                           entry_time=str(ph_time), signal_time=str(h.index[-1]), option=opt)
-                state[key] = rec
-                posts.append(discord.entry_card(s, t, rec, ind))
-    for card in posts:
+                opt = alpaca.option_pick(t, x["side"], price, **cfg["options"]) \
+                    if live and cfg.get("options") else None
+                state[key] = dict(side=int(x["side"]), price=price,
+                                  stop=float(stop) if stop is not None else None,
+                                  entry_time=str(ph_time), signal_time=str(bar_close(bt)), option=opt)
+                out.append(dict(kind="entry", strategy=s["name"], t=t, side=int(x["side"]), price=price,
+                                stop=state[key]["stop"], option=opt, bar=str(bt)))
+    return out
+
+
+def card_for(e: dict, ts: str | None = None) -> dict:
+    if e["kind"] == "entry":
+        bt = pd.Timestamp(e["bar"])
+        return discord.entry_card(e["t"], e["side"], e["price"], e["stop"],
+                                  discord.contract_text(e["t"], e["side"], e["price"], e.get("option")),
+                                  f"signal on the {bar_close(bt):%H:%M} ET bar close", ts)
+    return discord.exit_card(e["t"], e["side"], e["entry"], e["price"], e["ret"], e["days"], e["why"], ts)
+
+
+def run(dry: bool = False) -> None:
+    cfg = load_cfg()
+    state = json.loads(STATE.read_text()) if STATE.exists() else {}
+    mkt_sym = cfg.get("market", "SPY")
+    symbols = sorted({mkt_sym, *(t for s in cfg["strategies"] for t in s["universe"]["pool"])})
+    data = alpaca.bars_30m(symbols, days=cfg.get("history_days", 300))
+    hours = {t: complete_hours(df) for t, df in data.items() if len(df) > 100}
+    mkt = hours[mkt_sym]
+    evs = scan_once(cfg, state, hours, mkt, earnings.load(sorted(set(symbols) - {mkt_sym})))
+    for e in evs:
+        card = card_for(e)
         print(json.dumps(card, default=str)[:300])
         if not dry:
             discord.post(cfg, card)
     if not dry:
         STATE.parent.mkdir(exist_ok=True)
         STATE.write_text(json.dumps(state, indent=1, default=str))
-        if closed:
-            pd.DataFrame(closed).to_csv(LEDGER, mode="a", header=not LEDGER.exists(), index=False)
+        if evs:
+            log = pd.DataFrame([{k: v for k, v in e.items() if k != "option"} for e in evs])
+            log.to_csv(EVENTS, mode="a", header=not EVENTS.exists(), index=False)
+            ex = log[log.kind == "exit"]
+            if len(ex):
+                ex.rename(columns={"t": "ticker", "price": "exit", "why": "reason", "bar": "exit_time"})[
+                    ["strategy", "ticker", "side", "entry_time", "entry", "exit_time", "exit", "reason", "ret"]
+                ].to_csv(LEDGER, mode="a", header=not LEDGER.exists(), index=False)
     print(f"{datetime.now(timezone.utc):%Y-%m-%d %H:%M}Z last bar {mkt.index[-1]}, "
-          f"{len(posts)} alerts, {len(state)} open")
+          f"{len(evs)} alerts, {len(state)} open")
 
 
 if __name__ == "__main__":

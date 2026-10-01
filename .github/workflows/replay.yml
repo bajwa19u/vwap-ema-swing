@@ -1,0 +1,20 @@
+name: replay
+# Manual: replay the last N sessions to Discord as if live.
+on:
+  workflow_dispatch:
+    inputs:
+      sessions: { description: "sessions to replay", default: "5" }
+jobs:
+  replay:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.11", cache: pip }
+      - run: pip install -r requirements.txt
+      - run: python -m src.replay ${{ inputs.sessions }}
+        env:
+          ALPACA_API_KEY: ${{ secrets.ALPACA_API_KEY }}
+          ALPACA_API_SECRET: ${{ secrets.ALPACA_API_SECRET }}
+          DISCORD_WEBHOOK_VWAP: ${{ secrets.DISCORD_WEBHOOK_VWAP }}

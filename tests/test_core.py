@@ -128,3 +128,12 @@ def test_earnings_exit_fires_live_on_phantom_bar():
 
 def test_live_uses_earnings_rules():
     assert LIVE.earn_skip >= 1 and LIVE.earn_exit
+
+
+def test_card_labels():
+    from src import discord
+    assert "BUY CALL" in discord.entry_card("MU", 1, 100.0, 90.0, "x", "y")["title"]
+    assert "TAKE PROFIT" in discord.exit_card("MU", 1, 100, 104, 0.04, 2.0, "cross")["title"]
+    assert "STOP LOSS" in discord.exit_card("MU", 1, 100, 97, -0.03, 2.0, "cross")["title"]
+    c = discord.recap_card("Mon, Sep 28", [{"t": "MU"}], [{"t": "ARM", "ret": 0.02}], [], 0.5, True, [0.02])
+    assert "$" not in str(c) and "Daily Recap" in c["title"]

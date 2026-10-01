@@ -40,6 +40,7 @@ class Params:
     rs: int = 0              # 0 = off, else N-day return must beat SPY's
     dtrend: int = 0          # 0 = off, else close above own N-day SMA (daily closes)
     week_grace: int = 0      # ignore cross-back exits in the first N bars of the week (VWAP just reset)
+    entry_grace: int = 0     # no entries in the first N bars of the week (VWAP just reset)
     earn_skip: int = 0       # 0 = off; no entries when earnings gap within N trading days
     earn_exit: bool = False  # exit at the open of the last bar before an earnings gap
     trail_atr: float = 0.0   # 0 = off; once a close is this many ATR in profit, exit on a close back through the EMA
@@ -139,6 +140,11 @@ def indicators(df: pd.DataFrame, p: Params, market: pd.DataFrame | None = None) 
             rel = d["close"].pct_change(n) - m["close"].pct_change(n)
             ok_l &= rel > 0
             ok_s &= rel < 0
+    if p.entry_grace:
+        wk = d.index.tz_localize(None).to_period("W-FRI")
+        fresh = pd.Series(1, index=d.index).groupby(wk).cumsum() <= p.entry_grace
+        ok_l &= ~fresh
+        ok_s &= ~fresh
     sig = np.zeros(len(d), dtype=int)
     if p.sides in ("long", "both"):
         sig[(up & ok_l).to_numpy()] = 1
