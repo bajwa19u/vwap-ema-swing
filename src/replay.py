@@ -16,7 +16,9 @@ from src.scanner import bar_close, card_for, complete_hours, load_cfg, scan_once
 from src.strategy import Params
 
 
-def main(sessions: int = 5, dry: bool = False, warmup: int = 10, delay: float = 2.2) -> None:
+def main(sessions: int = 5, dry: bool = False, warmup: int = 10, delay: float = 2.2, seed: bool = False) -> None:
+    """seed=True: afterwards hand the replayed open positions to the live bot
+    (state/state.json) and mark the last replayed day's recap as posted."""
     cfg = load_cfg()
     s0 = cfg["strategies"][0]
     p = Params(**s0["params"])
@@ -40,7 +42,8 @@ def main(sessions: int = 5, dry: bool = False, warmup: int = 10, delay: float = 
         for t_bar in mkt_all.index[mkt_all.index.normalize() == d]:
             step(t_bar)
     carried = sorted(k.split(":", 1)[1] for k in state)
-    intro = (f"Replaying {window[0]:%b %-d} – {window[-1]:%b %-d} bar by bar, exactly as the bot would have posted. "
+    span = f"{window[0]:%a %b %-d}" if len(window) == 1 else f"{window[0]:%b %-d} – {window[-1]:%b %-d}"
+    intro = (f"Replaying {span} bar by bar, exactly as the bot would have posted. "
              f"Each card is timestamped with its original time.\n"
              f"Positions already open going in: {', '.join(carried) or 'none'}.")
     cards.append(discord.info_card("⏪ Replay: last week's signals", intro))
@@ -64,15 +67,23 @@ def main(sessions: int = 5, dry: bool = False, warmup: int = 10, delay: float = 
         rc["title"] = "⏪ REPLAY · " + rc["title"]
         cards.append(rc)
     cards.append(discord.info_card("⏹ End of replay",
-                 "Everything above was a replay of past sessions. Live signals and the daily recap continue from here."))
+                 "Everything above was a replay. Live signals and the daily recap continue from here"
+                 + (f", holding: {', '.join(sorted(k.split(':', 1)[1] for k in state)) or 'nothing'}." if seed else ".")))
     for c in cards:
         print(c["title"], "|", (c.get("description") or "")[:110].replace("\n", " "))
         if not dry:
             discord.post(cfg, c)
             time.sleep(delay)
     print(f"{len(cards)} cards")
+    if seed and not dry:
+        import json
+        from src.recap import LAST
+        from src.scanner import STATE
+        STATE.write_text(json.dumps(state, indent=1, default=str))
+        LAST.write_text(f"{window[-1]:%Y-%m-%d}")
+        print("seeded live state:", sorted(state))
 
 
 if __name__ == "__main__":
     args = [a for a in sys.argv[1:] if not a.startswith("--")]
-    main(int(args[0]) if args else 5, dry="--dry" in sys.argv)
+    main(int(args[0]) if args else 5, dry="--dry" in sys.argv, seed="--seed" in sys.argv)
