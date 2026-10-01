@@ -39,7 +39,13 @@ def bars_30m(symbols: list[str], days: int, feed: str = "sip") -> dict[str, pd.D
               "limit": 10000, "feed": feed}
     rows: dict[str, list] = {s: [] for s in symbols}
     while True:
-        js = _get(f"{DATA}/v2/stocks/bars", params)
+        try:
+            js = _get(f"{DATA}/v2/stocks/bars", params)
+        except requests.HTTPError as e:  # no SIP entitlement: fall back to IEX
+            if params["feed"] == "sip" and e.response is not None and e.response.status_code in (401, 403, 422):
+                params["feed"] = "iex"
+                continue
+            raise
         for sym, bars in (js.get("bars") or {}).items():
             rows[sym].extend(bars)
         if not js.get("next_page_token"):
