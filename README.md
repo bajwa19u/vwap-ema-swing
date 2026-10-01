@@ -10,7 +10,7 @@ to stay on.
 | | |
 |---|---|
 | Chart | 1-hour, regular session |
-| Entry | EMA21 closes above the weekly-anchored VWAP (resets Monday) |
+| Entry | EMA21 crosses above the weekly-anchored VWAP (resets Monday) and the close is above the VWAP |
 | Market filter | only when SPY's own EMA21 is above SPY's weekly VWAP |
 | Exit | EMA21 closes back below the weekly VWAP (ignored in the first trading day of the trade and the first 2 bars of each week) |
 | Earnings | no new entries within 2 trading days of a report; open trades close before the report's gap |
@@ -46,6 +46,8 @@ Calls are estimated with Black-Scholes (IV = 1.15 x realized vol, 0.65 delta,
 so prefer 0.65-0.75 delta, 3-6 week expiries.
 
 ### Changelog
+- 2026-10-01: full ablation study (reports/ablation.md). Kept: entry needs close above VWAP (holdout Sharpe 1.67 → 1.97,
+  max DD -12.1% → -6.2%); calls 21-30 DTE ~0.85 delta. Everything else tested and rejected.
 - 2026-10-01: earnings rules added (skip 2 days before, exit before the gap). Holdout +42.8% → +44.1%, max drawdown -15.3% → -12.1%.
   A 74-name pool was tested and rejected: worse on explore, and its holdout gain came from names picked with hindsight.
 

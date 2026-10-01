@@ -30,6 +30,8 @@ low on Claude usage. Don't re-read research/ unless the task is research.
 - Blocking entries on the first bars of the week (VWAP reset) hurt explore badly (+2.97 -> +1.78 per trade). Monday entries stay.
 - Owner: bull-market focus; bear-year weakness (2018, 2022 in reports/longtest.md) is accepted, not to be fixed.
 - Cards: BUY CALL / TAKE PROFIT / STOP LOSS + daily recap (src/recap.py, recap.yml). Replay: replay.yml.
+- Ablation 2026-10-01 (reports/ablation.md, research/ablation.py): only "close > VWAP at entry" and 0.85-delta 21-30 DTE calls kept.
+  Rejected: other universes, EMA 9/13/34, QQQ confirm (failed holdout), RS filters, other holds/exits/stops, Monday rules, vol sizing (close call).
 - Earnings dates: src/earnings.py, Yahoo, cached in state/earnings.json, fails open.
 
 ## Running

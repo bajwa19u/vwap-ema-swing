@@ -6,9 +6,9 @@ history_days: 300            # calendar days of 30m bars fetched each scan
 market: SPY                  # regime filter symbol
 
 options:                     # contract suggestion on each entry (set to null to disable)
-  dte_min: 21
-  dte_max: 45
-  delta_target: 0.65
+  dte_min: 21                # 21-30 DTE, ~0.85 delta won the options study (reports/ablation.md)
+  dte_max: 30
+  delta_target: 0.85
 
 strategies:
   - name: "EMA21 x Weekly VWAP"
@@ -17,6 +17,7 @@ strategies:
       tf: 1
       ema: 21
       vwap: week
+      entry: cross_price     # the cross only counts if the close is also above the VWAP
       sides: long
       min_bars: 7
       week_grace: 2          # weekly VWAP resets Monday; ignore exits on its first 2 bars
@@ -31,4 +32,4 @@ strategies:
       # candidates, ranked monthly by realized volatility; the top_k are traded
       pool: [AAPL, AMD, AMZN, ARM, AVGO, BA, COIN, CRM, GOOGL, HOOD, JPM, LLY, META,
              MSFT, MSTR, MU, NFLX, NVDA, ORCL, PLTR, SHOP, SMCI, TSLA, UBER, XOM]
-    stats: "Holdout Jul 2025 - Sep 2026: 316 trades, win 54%, avg +1.23% per trade (shares), avg hold 3.8 days"
+    stats: "Holdout Jul 2025 - Sep 2026: 215 trades, win 57%, avg +1.48% per trade (shares), max drawdown -6.2%"

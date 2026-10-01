@@ -24,9 +24,9 @@ def _pct(x: float) -> str:
 
 
 def strike_near(px: float) -> float:
-    """A slightly in-the-money strike (~0.65 delta for 3-6 weeks)."""
+    """An in-the-money strike, ~0.85 delta for 3-4 weeks out."""
     inc = 1 if px < 50 else 2.5 if px < 100 else 5 if px < 500 else 10
-    return math.floor(px * 0.97 / inc) * inc
+    return math.floor(px * 0.88 / inc) * inc
 
 
 def contract_text(t: str, side: int, price: float, opt: dict | None) -> str:
@@ -35,7 +35,7 @@ def contract_text(t: str, side: int, price: float, opt: dict | None) -> str:
         return (f"{t} {opt['strike']:g}{kind} · exp {opt['expiry']} · delta {opt['delta']} · "
                 f"mid {_f(opt['mid'])}")
     k = strike_near(price) if side > 0 else math.ceil(price * 1.03 / (5 if price >= 100 else 1)) * (5 if price >= 100 else 1)
-    return f"{t} ~{k:g}{kind} · 3-6 weeks out · ~0.65 delta"
+    return f"{t} ~{k:g}{kind} · 3-4 weeks out · ~0.85 delta"
 
 
 def entry_card(t: str, side: int, price: float, stop: float | None, contract: str,

@@ -103,6 +103,9 @@ def option_pick(underlying: str, side: int, spot: float, dte_min: int = 21,
             continue
         mid = (bid + ask) / 2
         spread = (ask - bid) / mid
+        iv = snap.get("impliedVolatility") or 0
+        if spread > 0.08 or iv > 2.0:  # illiquid contract or abnormal IV
+            continue
         score = abs(d - delta_target) + 2 * spread
         if score < best_score:
             exp = datetime.strptime(sym[-15:-9], "%y%m%d").date()

@@ -111,7 +111,7 @@ def test_earnings_skip_and_exit():
 def test_earnings_exit_fires_live_on_phantom_bar():
     """Live: the scan after the 14:30 bar must issue the exit for the 15:30 bar."""
     df, mkt = bars(seed=5, drift=0.0005), bars(seed=6, drift=0.0005)
-    base = Params(**{**LIVE.__dict__, "earn_skip": 0, "earn_exit": True})
+    base = Params(**{**LIVE.__dict__, "earn_skip": 0, "earn_exit": True, "entry": "cross"})  # mechanism test
     x = next(t for t in simulate(df, Params(**{**base.__dict__, "earn_exit": False}), market=mkt)
              if t["reason"] == "cross"
              and t["exit_time"].normalize() > t["entry_time"].normalize() + pd.offsets.BDay(3))
@@ -128,6 +128,12 @@ def test_earnings_exit_fires_live_on_phantom_bar():
 
 def test_live_uses_earnings_rules():
     assert LIVE.earn_skip >= 1 and LIVE.earn_exit
+
+
+def test_live_matches_ablation_result():
+    cfg = yaml.safe_load((ROOT / "config.yaml").read_text())
+    assert LIVE.entry == "cross_price" and LIVE.regime == "spyvw" and LIVE.stop_atr == 6.0
+    assert cfg["options"]["delta_target"] == 0.85 and cfg["options"]["dte_max"] <= 30
 
 
 def test_card_labels():
