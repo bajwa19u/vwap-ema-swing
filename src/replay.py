@@ -46,7 +46,7 @@ def main(sessions: int = 5, dry: bool = False, warmup: int = 10, delay: float = 
     intro = (f"Replaying {span} bar by bar, exactly as the bot would have posted. "
              f"Each card is timestamped with its original time.\n"
              f"Positions already open going in: {', '.join(carried) or 'none'}.")
-    cards.append(discord.info_card("⏪ Replay: last week's signals", intro))
+    cards.append(discord.info_card("⏪ Replay", intro))
     week: list[float] = []
     for d in window:
         if d.weekday() == 0:
