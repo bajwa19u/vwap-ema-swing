@@ -1,0 +1,195 @@
+"""VWAP / EMA cross strategy. Shared by the backtest and the live scanner so the
+two can never disagree about what a signal is.
+
+Bars: regular-session bars indexed in America/New_York, columns
+open/high/low/close/volume, at 1h granularity (09:30-anchored). Higher
+timeframes are built with `resample`. `market` is the same for SPY and feeds
+the regime / relative-strength filters.
+
+Rules (all decisions on a bar's CLOSE, filled at the NEXT bar's open):
+  long  entry : EMA crosses above VWAP (+ optional filters)
+  short entry : EMA crosses below VWAP (+ optional filters)
+  exits       : stop / target are resting orders (may use high/low);
+                cross-back and time stop fire on close, fill next open.
+"""
+from __future__ import annotations
+
+from dataclasses import dataclass, asdict
+import numpy as np
+import pandas as pd
+
+BARS_PER_DAY = {1: 7, 2: 4, 4: 2}
+
+
+@dataclass
+class Params:
+    tf: int = 1              # bars of 1h per strategy bar: 1, 2 or 4 (4 = half-day)
+    ema: int = 21
+    vwap: str = "week"       # session | week | month | roll<N>  (rolling N strategy bars)
+    trend: int = 0           # 0 = off, else close must be beyond EMA(trend)
+    sides: str = "long"      # long | short | both
+    stop_atr: float = 0.0    # 0 = off
+    target_atr: float = 0.0  # 0 = off
+    exit_cross: bool = True  # exit when the exit line is crossed back (see `exit`)
+    min_bars: int = 0        # ignore cross-back exits before this many bars held
+    max_bars: int = 0        # 0 = off; time stop
+    confirm: bool = False    # close must also be on the trade side of both lines
+    entry: str = "cross"     # cross | cross_or_pb (also first pullback to VWAP while EMA>VWAP)
+    exit: str = "cross"      # cross: EMA back through VWAP | close_vwap: close back through VWAP
+    regime: str = ""         # "" | spy50: SPY above its 50-day SMA | spyvw: SPY EMA above SPY VWAP
+    rs: int = 0              # 0 = off, else N-day return must beat SPY's
+    dtrend: int = 0          # 0 = off, else close above own N-day SMA (daily closes)
+    week_grace: int = 0      # ignore cross-back exits in the first N bars of the week (VWAP just reset)
+    trail_atr: float = 0.0   # 0 = off; once a close is this many ATR in profit, exit on a close back through the EMA
+
+    def key(self) -> str:
+        return "|".join(f"{k}={v}" for k, v in asdict(self).items())
+
+
+def resample(df: pd.DataFrame, k: int) -> pd.DataFrame:
+    if k == 1:
+        return df
+    day = df.index.normalize()
+    pos = df.groupby(day).cumcount() // k
+    g = df.groupby([day, pos])
+    out = pd.DataFrame({
+        "open": g["open"].first(), "high": g["high"].max(), "low": g["low"].min(),
+        "close": g["close"].last(), "volume": g["volume"].sum(),
+    })
+    out.index = pd.DatetimeIndex(df.index.to_series().groupby([day, pos]).first().tolist())
+    return out
+
+
+def _vwap(df: pd.DataFrame, kind: str) -> pd.Series:
+    tp = (df["high"] + df["low"] + df["close"]) / 3
+    pv = tp * df["volume"]
+    if kind.startswith("roll"):
+        n = int(kind[4:])
+        return pv.rolling(n).sum() / df["volume"].rolling(n).sum()
+    if kind == "session":
+        key = df.index.normalize()
+    elif kind == "week":
+        key = df.index.tz_localize(None).to_period("W-FRI")
+    elif kind == "month":
+        key = df.index.tz_localize(None).to_period("M")
+    else:
+        raise ValueError(kind)
+    return pv.groupby(key).cumsum() / df["volume"].groupby(key).cumsum()
+
+
+def _sma_daily_prev(d: pd.DataFrame, n: int) -> pd.Series:
+    """N-day SMA of completed daily closes (excludes today), mapped onto bars."""
+    day = d.index.normalize()
+    closes = d["close"].groupby(day).last()
+    sma = closes.rolling(n).mean().shift(1)
+    return pd.Series(sma.reindex(day).to_numpy(), index=d.index)
+
+
+def indicators(df: pd.DataFrame, p: Params, market: pd.DataFrame | None = None) -> pd.DataFrame:
+    d = resample(df, p.tf).copy()
+    d["ema"] = d["close"].ewm(span=p.ema, adjust=False).mean()
+    d["vwap"] = _vwap(d, p.vwap)
+    prev_c = d["close"].shift()
+    tr = pd.concat([d["high"] - d["low"], (d["high"] - prev_c).abs(),
+                    (d["low"] - prev_c).abs()], axis=1).max(axis=1)
+    d["atr"] = tr.ewm(alpha=1 / 14, adjust=False).mean()
+    d["trend"] = d["close"].ewm(span=p.trend, adjust=False).mean() if p.trend else np.nan
+    diff = d["ema"] - d["vwap"]
+    d["above"] = diff > 0
+    up = (diff > 0) & (diff.shift() <= 0)
+    dn = (diff < 0) & (diff.shift() >= 0)
+    if p.entry == "cross_or_pb":  # first touch of VWAP from above, closing back above
+        up |= d["above"] & (d["low"] <= d["vwap"]) & (d["close"] > d["vwap"]) & \
+              (d["low"].shift() > d["vwap"].shift())
+        dn |= ~d["above"] & (d["high"] >= d["vwap"]) & (d["close"] < d["vwap"]) & \
+              (d["high"].shift() < d["vwap"].shift())
+    # line that decides the exit, as "still on the long side?"
+    d["hold_long"] = d["above"] if p.exit == "cross" else d["close"] > d["vwap"]
+
+    ok_l = pd.Series(True, index=d.index)
+    ok_s = pd.Series(True, index=d.index)
+    if p.trend:
+        ok_l &= d["close"] > d["trend"]
+        ok_s &= d["close"] < d["trend"]
+    if p.confirm:
+        ok_l &= d["close"] > d[["ema", "vwap"]].max(axis=1)
+        ok_s &= d["close"] < d[["ema", "vwap"]].min(axis=1)
+    if p.dtrend:
+        sma = _sma_daily_prev(d, p.dtrend)
+        ok_l &= d["close"] > sma
+        ok_s &= d["close"] < sma
+    if (p.regime or p.rs) and market is not None:
+        m = resample(market, p.tf).reindex(d.index).ffill()
+        if p.regime == "spy50":
+            bull = m["close"] > _sma_daily_prev(m, 50)
+        elif p.regime == "spyvw":
+            bull = m["close"].ewm(span=p.ema, adjust=False).mean() > _vwap(m, p.vwap)
+        else:
+            bull = None
+        if bull is not None:
+            ok_l &= bull
+            ok_s &= ~bull
+        if p.rs:
+            n = p.rs * BARS_PER_DAY[p.tf]
+            rel = d["close"].pct_change(n) - m["close"].pct_change(n)
+            ok_l &= rel > 0
+            ok_s &= rel < 0
+    sig = np.zeros(len(d), dtype=int)
+    if p.sides in ("long", "both"):
+        sig[(up & ok_l).to_numpy()] = 1
+    if p.sides in ("short", "both"):
+        sig[(dn & ok_s).to_numpy()] = -1
+    d["sig"] = sig
+    return d
+
+
+def simulate(df: pd.DataFrame, p: Params, cost: float = 0.0005, warmup: int = 0,
+             market: pd.DataFrame | None = None):
+    """Return list of trades (dicts). cost is per side, as a fraction."""
+    d = indicators(df, p, market)
+    o, h, l, c = (d[x].to_numpy() for x in ("open", "high", "low", "close"))
+    atr, hold_long, ema = d["atr"].to_numpy(), d["hold_long"].to_numpy(), d["ema"].to_numpy()
+    wk = d.index.tz_localize(None).to_period("W-FRI")
+    bar_of_week = pd.Series(1, index=d.index).groupby(wk).cumsum().to_numpy()
+    idx = d.index
+    sig = d["sig"].to_numpy()
+    start = max(warmup, p.ema, 20, p.trend if p.trend else 0)
+    trades, i, n = [], start, len(d)
+    while i < n - 1:
+        side = sig[i]
+        if side == 0:
+            i += 1
+            continue
+        j = i + 1
+        entry = o[j]
+        a = atr[i]
+        stop = entry - side * p.stop_atr * a if p.stop_atr else None
+        tgt = entry + side * p.target_atr * a if p.target_atr else None
+        exit_px, reason, k = None, None, j
+        best = entry
+        while k < n:
+            if stop is not None and (l[k] <= stop if side > 0 else h[k] >= stop):
+                exit_px = (min(o[k], stop) if side > 0 else max(o[k], stop)); reason = "stop"; break
+            if tgt is not None and (h[k] >= tgt if side > 0 else l[k] <= tgt):
+                exit_px = (max(o[k], tgt) if side > 0 else min(o[k], tgt)); reason = "target"; break
+            held = k - j + 1
+            if k + 1 < n:
+                if p.exit_cross and held >= p.min_bars and (hold_long[k] != (side > 0)) \
+                        and bar_of_week[k] > p.week_grace:
+                    exit_px, reason, k = o[k + 1], "cross", k + 1; break
+                best = max(best, c[k]) if side > 0 else min(best, c[k])
+                if p.trail_atr and side * (best - entry) >= p.trail_atr * a and side * (c[k] - ema[k]) < 0:
+                    exit_px, reason, k = o[k + 1], "trail", k + 1; break
+                if p.max_bars and held >= p.max_bars:
+                    exit_px, reason, k = o[k + 1], "time", k + 1; break
+            k += 1
+        if exit_px is None:  # still open at end of data: mark at last close
+            k, exit_px, reason = n - 1, c[n - 1], "open"
+        ret = side * (exit_px / entry - 1) - 2 * cost
+        trades.append(dict(entry_time=idx[j], exit_time=idx[k], side=side,
+                           entry=entry, exit=exit_px, ret=ret, reason=reason,
+                           days=(idx[k] - idx[j]).total_seconds() / 86400))
+        # a cross/time exit fired on bar k-1's close; that bar may carry the
+        # reversal signal, so resume there. Stops/targets resume on bar k.
+        i = max(k - 1 if reason in ("cross", "time", "trail") else k, j)
+    return trades

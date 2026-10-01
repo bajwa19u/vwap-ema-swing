@@ -1,0 +1,32 @@
+name: retune
+# Saturdays: re-test live rules vs nearby variants on fresh data, adopt only
+# clear out-of-sample winners, post the weekly scorecard.
+on:
+  schedule:
+    - cron: "0 14 * * 6"
+  workflow_dispatch:
+
+concurrency: { group: state, cancel-in-progress: false }
+permissions: { contents: write }
+
+jobs:
+  retune:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.11", cache: pip }
+      - run: pip install -r requirements.txt
+      - run: python -m pytest -q
+      - run: python -m src.retune
+        env:
+          ALPACA_API_KEY: ${{ secrets.ALPACA_API_KEY }}
+          ALPACA_API_SECRET: ${{ secrets.ALPACA_API_SECRET }}
+          DISCORD_WEBHOOK_VWAP: ${{ secrets.DISCORD_WEBHOOK_VWAP }}
+      - run: python -m pytest -q   # never commit a config the tests reject
+      - name: commit
+        run: |
+          git config user.name "vwap-bot"; git config user.email "bot@users.noreply.github.com"
+          git add config.yaml reports/
+          git diff --cached --quiet || (git commit -m "retune $(date -u +%F)" && git pull --rebase && git push)
