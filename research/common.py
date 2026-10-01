@@ -25,13 +25,14 @@ def tickers() -> list[str]:
 
 
 _SPY = None
+_EARN = __import__("pickle").load(open(CACHE / "earnings.pickle", "rb")) if (CACHE / "earnings.pickle").exists() else {}
 
 
 def run(t: str, p: Params) -> pd.DataFrame:
     global _SPY
     if _SPY is None:
         _SPY = load("SPY")
-    tr = pd.DataFrame(simulate(load(t), p, market=_SPY))
+    tr = pd.DataFrame(simulate(load(t), p, market=_SPY, events=_EARN.get(t)))
     if len(tr):
         tr["ticker"] = t
         tr["holdout"] = tr["entry_time"] >= SPLIT

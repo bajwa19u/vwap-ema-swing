@@ -14,7 +14,7 @@ from pathlib import Path
 import pandas as pd
 import yaml
 
-from src import alpaca, discord
+from src import alpaca, discord, earnings
 from src.strategy import Params, indicators, simulate
 from src.universe import top_by_vol
 
@@ -59,11 +59,11 @@ def strategy_bar_complete(h: pd.DataFrame, p: Params) -> bool:
     return n_today % p.tf == 0 or n_today == 7
 
 
-def evaluate(h: pd.DataFrame, mkt: pd.DataFrame, p: Params, cur: dict | None):
+def evaluate(h: pd.DataFrame, mkt: pd.DataFrame, p: Params, cur: dict | None, events=None):
     """Pure decision step for one ticker. Returns (exit_info | None, entry_info | None)."""
     hp, ph_time = with_phantom(h)
     mp = mkt.reindex(hp.index).ffill()
-    trades = simulate(hp, p, cost=0, market=mp)
+    trades = simulate(hp, p, cost=0, market=mp, events=events)
     exit_info = entry_info = None
     if cur:
         since = pd.Timestamp(cur["entry_time"])
@@ -86,6 +86,7 @@ def run(dry: bool = False) -> None:
     data = alpaca.bars_30m(symbols, days=cfg.get("history_days", 300))
     hours = {t: complete_hours(df) for t, df in data.items() if len(df) > 100}
     mkt = hours[mkt_sym]
+    events = earnings.load(sorted(set(symbols) - {mkt_sym}))
     posts, closed = [], []
     for s in cfg["strategies"]:
         p = Params(**s["params"])
@@ -100,7 +101,7 @@ def run(dry: bool = False) -> None:
                 continue  # stale/halted symbol, or a higher-tf bar still forming
             key = f"{s['name']}:{t}"
             cur = state.get(key)
-            exit_info, entry_info = evaluate(h, mkt, p, cur)
+            exit_info, entry_info = evaluate(h, mkt, p, cur, events.get(t))
             if exit_info:
                 px, why = float(exit_info[0]), exit_info[1]
                 ret = cur["side"] * (px / cur["price"] - 1)

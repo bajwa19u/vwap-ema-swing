@@ -13,6 +13,7 @@ to stay on.
 | Entry | EMA21 closes above the weekly-anchored VWAP (resets Monday) |
 | Market filter | only when SPY's own EMA21 is above SPY's weekly VWAP |
 | Exit | EMA21 closes back below the weekly VWAP (ignored in the first trading day of the trade and the first 2 bars of each week) |
+| Earnings | no new entries within 2 trading days of a report; open trades close before the report's gap |
 | Disaster stop | 6 x ATR(14) below entry |
 | Names | the 10 most volatile of a 25-stock pool by 120-day realized volatility, re-picked monthly |
 | Side | long only (calls, not puts). Shorts lost money in every variant tested |
@@ -25,15 +26,15 @@ Jul 2025 - Sep 2026 ("holdout").
 
 | period | trades | win % | winners / losers | avg profit % per trade | avg vs SPY same window |
 |---|---|---|---|---|---|
-| explore | 293 | 61.4 | 180 / 113 | +2.98 | +2.06 |
-| **holdout** | **324** | **53.1** | **172 / 152** | **+1.18** | **+0.99** |
+| explore | 283 | 62.2 | 176 / 107 | +2.97 | +2.09 |
+| **holdout** | **316** | **53.5** | **169 / 147** | **+1.23** | **+1.03** |
 
 Portfolio, 10% of equity per position, holdout only:
 
 | | total | per year | max drawdown |
 |---|---|---|---|
-| Strategy (shares) | +42.8% | +32.9% | -15.3% |
-| Strategy (calls, estimated) | +32.1% | +24.9% | -27.3% |
+| Strategy (shares) | +44.1% | +33.9% | -12.1% |
+| Strategy (calls, estimated) | +32.9% | +25.5% | -24.0% |
 | Holding the same volatile names | +62.5% | +47.4% | -37.3% |
 | SPY buy & hold | +23.2% | +18.2% | -9.1% |
 
@@ -43,6 +44,10 @@ holding the volatile names made more, with more than twice the drawdown.
 Calls are estimated with Black-Scholes (IV = 1.15 x realized vol, 0.65 delta,
 30 DTE, 3% spread); with 3-5 day holds, time decay takes much of the leverage,
 so prefer 0.65-0.75 delta, 3-6 week expiries.
+
+### Changelog
+- 2026-10-01: earnings rules added (skip 2 days before, exit before the gap). Holdout +42.8% → +44.1%, max drawdown -15.3% → -12.1%.
+  A 74-name pool was tested and rejected: worse on explore, and its holdout gain came from names picked with hindsight.
 
 ### What was tried and rejected (do not re-test without new data)
 

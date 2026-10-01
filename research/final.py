@@ -45,8 +45,8 @@ def option_ret(row, rv, dte=30, delta=0.65, spread=0.03):
 
 
 def main():
-    ranks = vol_ranks(LB)
-    pool = [t for t in tickers() if t not in EXCLUDE]
+    pool = [t for t in S["universe"]["pool"] if t not in EXCLUDE]
+    ranks = vol_ranks(LB, pool)
     tr = pd.concat([run(t, P) for t in pool], ignore_index=True)
     m = tr.entry_time.map(lambda x: pd.Timestamp(x.year, x.month, 1) + pd.offsets.MonthEnd(0))
     tr["rank"] = [ranks.at[a, t] if a in ranks.index else np.nan for a, t in zip(m, tr.ticker)]

@@ -12,9 +12,9 @@ from pertick import parse
 EXCLUDE = {"SPY", "QQQ", "IWM"}  # the regime filter is SPY itself; edge vs SPY ~0 by construction
 
 
-def vol_ranks(lookback: int) -> pd.DataFrame:
+def vol_ranks(lookback: int, pool: list[str] | None = None) -> pd.DataFrame:
     vols = {}
-    for t in tickers():
+    for t in pool or tickers():
         if t in EXCLUDE:
             continue
         c = load(t)["close"]

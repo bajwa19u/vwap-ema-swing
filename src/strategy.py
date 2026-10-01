@@ -40,6 +40,8 @@ class Params:
     rs: int = 0              # 0 = off, else N-day return must beat SPY's
     dtrend: int = 0          # 0 = off, else close above own N-day SMA (daily closes)
     week_grace: int = 0      # ignore cross-back exits in the first N bars of the week (VWAP just reset)
+    earn_skip: int = 0       # 0 = off; no entries when earnings gap within N trading days
+    earn_exit: bool = False  # exit at the open of the last bar before an earnings gap
     trail_atr: float = 0.0   # 0 = off; once a close is this many ATR in profit, exit on a close back through the EMA
 
     def key(self) -> str:
@@ -143,9 +145,21 @@ def indicators(df: pd.DataFrame, p: Params, market: pd.DataFrame | None = None) 
     return d
 
 
+def gap_days(events) -> np.ndarray:
+    """Earnings timestamps -> the session whose open carries the reaction:
+    the same day for a pre-market report, the next weekday otherwise."""
+    out = []
+    for ts in events or ():
+        ts = pd.Timestamp(ts)
+        d = np.datetime64(ts.date(), "D")
+        out.append(d if ts.hour < 12 else np.busday_offset(d, 1, roll="forward"))
+    return np.unique(np.array(out, dtype="datetime64[D]"))
+
+
 def simulate(df: pd.DataFrame, p: Params, cost: float = 0.0005, warmup: int = 0,
-             market: pd.DataFrame | None = None):
-    """Return list of trades (dicts). cost is per side, as a fraction."""
+             market: pd.DataFrame | None = None, events=None):
+    """Return list of trades (dicts). cost is per side, as a fraction.
+    events: earnings timestamps for this ticker (used by earn_skip / earn_exit)."""
     d = indicators(df, p, market)
     o, h, l, c = (d[x].to_numpy() for x in ("open", "high", "low", "close"))
     atr, hold_long, ema = d["atr"].to_numpy(), d["hold_long"].to_numpy(), d["ema"].to_numpy()
@@ -153,6 +167,23 @@ def simulate(df: pd.DataFrame, p: Params, cost: float = 0.0005, warmup: int = 0,
     bar_of_week = pd.Series(1, index=d.index).groupby(wk).cumsum().to_numpy()
     idx = d.index
     sig = d["sig"].to_numpy()
+    gaps = gap_days(events) if (p.earn_skip or p.earn_exit) else np.array([], dtype="datetime64[D]")
+    days = idx.tz_localize(None).values.astype("datetime64[D]")
+
+    last_start = 570 + 60 * p.tf * (6 // p.tf)  # minutes; start of a session's final bar
+    mins = idx.hour * 60 + idx.minute
+
+    def last_before(k, g):
+        """Bar k is the final bar of the last session before gap day g."""
+        if days[k] >= g:
+            return False
+        if k + 1 < n and days[k + 1] != days[k]:
+            return days[k + 1] >= g
+        return mins[k] >= last_start and np.busday_offset(days[k], 1, roll="forward") >= g
+
+    def next_gap(day):
+        k = np.searchsorted(gaps, day, side="right")
+        return gaps[k] if k < len(gaps) else None
     start = max(warmup, p.ema, 20, p.trend if p.trend else 0)
     trades, i, n = [], start, len(d)
     while i < n - 1:
@@ -161,6 +192,12 @@ def simulate(df: pd.DataFrame, p: Params, cost: float = 0.0005, warmup: int = 0,
             i += 1
             continue
         j = i + 1
+        if p.earn_skip and len(gaps):
+            g = next_gap(days[j])
+            if g is not None and g <= np.busday_offset(days[j], p.earn_skip, roll="forward"):
+                i += 1
+                continue
+        g_hold = next_gap(days[j]) if p.earn_exit and len(gaps) else None
         entry = o[j]
         a = atr[i]
         stop = entry - side * p.stop_atr * a if p.stop_atr else None
@@ -173,6 +210,8 @@ def simulate(df: pd.DataFrame, p: Params, cost: float = 0.0005, warmup: int = 0,
             if tgt is not None and (h[k] >= tgt if side > 0 else l[k] <= tgt):
                 exit_px = (max(o[k], tgt) if side > 0 else min(o[k], tgt)); reason = "target"; break
             held = k - j + 1
+            if g_hold is not None and k > j and last_before(k, g_hold):
+                exit_px, reason = o[k], "earnings"; break
             if k + 1 < n:
                 if p.exit_cross and held >= p.min_bars and (hold_long[k] != (side > 0)) \
                         and bar_of_week[k] > p.week_grace:

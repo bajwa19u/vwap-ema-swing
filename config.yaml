@@ -23,10 +23,12 @@ strategies:
       stop_atr: 6.0
       exit: cross
       regime: spyvw
+      earn_skip: 2           # no new entries within 2 trading days of an earnings report
+      earn_exit: true        # close before the earnings gap
     universe:
       top_k: 10
       vol_lookback_days: 120
       # candidates, ranked monthly by realized volatility; the top_k are traded
       pool: [AAPL, AMD, AMZN, ARM, AVGO, BA, COIN, CRM, GOOGL, HOOD, JPM, LLY, META,
              MSFT, MSTR, MU, NFLX, NVDA, ORCL, PLTR, SHOP, SMCI, TSLA, UBER, XOM]
-    stats: "Holdout Jul 2025 - Sep 2026: 324 trades, win 53%, avg +1.18% per trade (shares), avg hold 3.8 days"
+    stats: "Holdout Jul 2025 - Sep 2026: 316 trades, win 54%, avg +1.23% per trade (shares), avg hold 3.8 days"

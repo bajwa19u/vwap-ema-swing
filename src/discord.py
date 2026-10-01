@@ -48,7 +48,8 @@ def entry_card(s: dict, t: str, rec: dict, ind) -> dict:
 
 def exit_card(s: dict, t: str, cur: dict, px: float, why: str, ret: float) -> dict:
     words = {"cross": "EMA crossed back through VWAP", "stop": "stop hit", "target": "target hit",
-             "time": "time stop", "reset": "position no longer valid"}
+             "time": "time stop", "reset": "position no longer valid",
+             "earnings": "closed before earnings"}
     won = ret > 0
     return {"title": f"{'✅' if won else '❌'} EXIT {t}  ·  {s['name']}",
             "color": GREEN if won else RED if ret < 0 else GREY,

@@ -24,6 +24,10 @@ low on Claude usage. Don't re-read research/ unless the task is research.
 - Tight stops, targets, trailing exits, trend/RS filters all failed the holdout.
 - Ticker selection by past results is noise; volatility rank persists.
 - Ignoring exits on the first 1-4 bars of the week helped both splits (weekly VWAP reset artifact).
+- Earnings skip-2 + exit-before-gap: better t-stat and win % in both splits, lower drawdown. Live.
+- Bigger pool (74 names) rejected: worse on explore; holdout gain was hindsight in the added names.
+- Top 10 beats top 15/20 in both splits.
+- Earnings dates: src/earnings.py, Yahoo, cached in state/earnings.json, fails open.
 
 ## Running
 Market data works locally (Yahoo) for research. Live and retune need Alpaca

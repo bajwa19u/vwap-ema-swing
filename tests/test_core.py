@@ -91,3 +91,40 @@ def test_universe_ignores_current_month():
     base = top_by_vol({"A": a, "B": b}, 1, 60, asof=pd.Timestamp("2025-10-01", tz=NY))
     later = top_by_vol({"A": a, "B": b}, 1, 60, asof=pd.Timestamp("2025-10-20", tz=NY))
     assert base == later
+
+
+def test_earnings_skip_and_exit():
+    df, mkt = bars(seed=5, drift=0.0005), bars(seed=6, drift=0.0005)
+    base = Params(**{**LIVE.__dict__, "earn_skip": 0, "earn_exit": False})
+    x = next(t for t in simulate(df, base, market=mkt) if t["reason"] == "cross" and t["days"] > 2)
+    entry_day = x["entry_time"].normalize()
+    # a pre-market report the next weekday after entry
+    report = (entry_day + pd.offsets.BDay(1)).replace(hour=7)
+    skip = Params(**{**base.__dict__, "earn_skip": 2})
+    assert all(t["entry_time"] != x["entry_time"] for t in simulate(df, skip, market=mkt, events=[report]))
+    ex = Params(**{**base.__dict__, "earn_exit": True})
+    y = next(t for t in simulate(df, ex, market=mkt, events=[report]) if t["entry_time"] == x["entry_time"])
+    assert y["reason"] == "earnings"
+    assert y["exit_time"].normalize() == entry_day and (y["exit_time"].hour, y["exit_time"].minute) == (15, 30)
+
+
+def test_earnings_exit_fires_live_on_phantom_bar():
+    """Live: the scan after the 14:30 bar must issue the exit for the 15:30 bar."""
+    df, mkt = bars(seed=5, drift=0.0005), bars(seed=6, drift=0.0005)
+    base = Params(**{**LIVE.__dict__, "earn_skip": 0, "earn_exit": True})
+    x = next(t for t in simulate(df, Params(**{**base.__dict__, "earn_exit": False}), market=mkt)
+             if t["reason"] == "cross"
+             and t["exit_time"].normalize() > t["entry_time"].normalize() + pd.offsets.BDay(3))
+    day = x["entry_time"].normalize()
+    report = (day + pd.offsets.BDay(2)).replace(hour=16, minute=5)  # after-close report, gap 3 days on
+    gap_eve = day + pd.offsets.BDay(2)                                # last session before the gap
+    cut = df.index.get_loc(gap_eve + pd.Timedelta(hours=14, minutes=30)) + 1  # through the 14:30 bar
+    cur = {"side": 1, "price": float(df["close"].iloc[cut - 1]), "entry_time": str(x["entry_time"])}
+    ex, _ = evaluate(df.iloc[:cut], mkt.iloc[:cut], base, cur, [report])
+    assert ex is not None and ex[1] == "earnings"
+    ex, _ = evaluate(df.iloc[:cut - 1], mkt.iloc[:cut - 1], base, cur, [report])
+    assert ex is None, "not before the final bar"
+
+
+def test_live_uses_earnings_rules():
+    assert LIVE.earn_skip >= 1 and LIVE.earn_exit

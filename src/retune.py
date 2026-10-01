@@ -18,7 +18,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from src import alpaca, discord
+from src import alpaca, discord, earnings
 from src.scanner import LEDGER, ROOT, complete_hours, load_cfg
 from src.strategy import Params, simulate
 from src.universe import top_by_vol
@@ -45,10 +45,10 @@ def monthly_members(hours: dict, k: int, lookback: int) -> dict:
             for m in months}
 
 
-def backtest(p: Params, hours: dict, mkt: pd.DataFrame, members: dict) -> pd.DataFrame:
+def backtest(p: Params, hours: dict, mkt: pd.DataFrame, members: dict, events: dict | None = None) -> pd.DataFrame:
     out = []
     for t, h in hours.items():
-        tr = pd.DataFrame(simulate(h, p, market=mkt.reindex(h.index).ffill()))
+        tr = pd.DataFrame(simulate(h, p, market=mkt.reindex(h.index).ffill(), events=(events or {}).get(t)))
         if len(tr):
             tr["ticker"] = t
             keep = [t in members.get((e.year, e.month), ()) for e in tr.entry_time]
@@ -82,13 +82,14 @@ def main(dry: bool = False) -> None:
     hours = {t: complete_hours(df) for t, df in data.items() if len(df) > 1000}
     mkt = hours.pop(cfg.get("market", "SPY"))
     members = monthly_members(hours, u["top_k"], u["vol_lookback_days"])
+    ev = earnings.load(sorted(hours))
     cutoff = mkt.index[-1] - pd.Timedelta(days=365)
 
     inc = Params(**s0["params"])
     rows = []
     for combo in itertools.product(*NEIGHBORS.values()):
         p = Params(**{**s0["params"], **dict(zip(NEIGHBORS, combo))})
-        tr = backtest(p, hours, mkt, members)
+        tr = backtest(p, hours, mkt, members, ev)
         full, rec = stats(tr.ret), stats(tr[tr.entry_time >= cutoff].ret)
         rows.append(dict(p=p, **{f"f_{k}": v for k, v in full.items()}, **{f"r_{k}": v for k, v in rec.items()},
                          days=tr.days.mean(), is_inc=p == inc))

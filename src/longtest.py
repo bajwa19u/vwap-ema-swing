@@ -10,7 +10,7 @@ import sys
 
 import pandas as pd
 
-from src import alpaca
+from src import alpaca, earnings
 from src.retune import backtest, monthly_members, stats
 from src.scanner import ROOT, complete_hours, load_cfg
 from src.strategy import Params
@@ -25,7 +25,7 @@ def main(days: int = 3800) -> None:
     hours = {t: complete_hours(df) for t, df in data.items() if len(df) > 1000}
     mkt = hours.pop(msym)
     members = monthly_members(hours, u["top_k"], u["vol_lookback_days"])
-    tr = backtest(Params(**s0["params"]), hours, mkt, members)
+    tr = backtest(Params(**s0["params"]), hours, mkt, members, earnings.load(sorted(hours)))
     tr["year"] = [t.year for t in tr.entry_time]
     spy = mkt["close"].groupby(mkt.index.year).agg(["first", "last"])
     lines = ["# Long-history check (live rules)", "",
