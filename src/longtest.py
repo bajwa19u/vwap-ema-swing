@@ -25,22 +25,39 @@ def main(days: int = 3800) -> None:
     hours = {t: complete_hours(df) for t, df in data.items() if len(df) > 1000}
     mkt = hours.pop(msym)
     members = monthly_members(hours, u["top_k"], u["vol_lookback_days"])
-    tr = backtest(Params(**s0["params"]), hours, mkt, members, earnings.load(sorted(hours)))
-    tr["year"] = [t.year for t in tr.entry_time]
+    ev = earnings.load(sorted(hours))
+    base = s0["params"]
+    variants = {"live": base["regime"]}
+    for extra in ("spy200", "spy100", "spy50"):
+        variants[f"+{extra}"] = f"{base['regime']}+{extra}"
+    res = {}
+    for name, reg in variants.items():
+        tr = backtest(Params(**{**base, "regime": reg}), hours, mkt, members, ev)
+        tr["year"] = [t.year for t in tr.entry_time]
+        res[name] = tr
     spy = mkt["close"].groupby(mkt.index.year).agg(["first", "last"])
-    lines = ["# Long-history check (live rules)", "",
-             f"Alpaca bars {mkt.index[0]:%Y-%m-%d} to {mkt.index[-1]:%Y-%m-%d}. "
-             "Account % = 10% of the account per position, summed. Today's pool, so survivorship applies.", "",
-             "| year | trades | win % | winners / losers | avg per trade % | account % | SPY % |",
-             "|---|---|---|---|---|---|---|"]
-    for y, part in tr.groupby("year"):
-        s = stats(part.ret)
-        sp = 100 * (spy.at[y, "last"] / spy.at[y, "first"] - 1) if y in spy.index else float("nan")
-        lines.append(f"| {y} | {s['n']} | {s['win']:.1f} | {s['wins']} / {s['losses']} | {s['avg']:+.2f} | "
-                     f"{10 * part.ret.sum():+.1f} | {sp:+.1f} |")
-    s = stats(tr.ret)
-    lines.append(f"| all | {s['n']} | {s['win']:.1f} | {s['wins']} / {s['losses']} | {s['avg']:+.2f} | "
-                 f"{10 * tr.ret.sum():+.1f} | |")
+    names = list(variants)
+    lines = ["# Long-history check", "",
+             f"Alpaca bars {mkt.index[0]:%Y-%m-%d} to {mkt.index[-1]:%Y-%m-%d}. Account % = 10% of the account per "
+             "position, summed per year. Today's pool, so survivorship applies. Choose on 2016-2022, check 2023+.", "",
+             "| year | SPY % | " + " | ".join(f"{n} acct % (n, win %)" for n in names) + " |",
+             "|---|---|" + "---|" * len(names)]
+    for y in sorted(set(res["live"].year)):
+        sp = 100 * (spy.at[y, "last"] / spy.at[y, "first"] - 1)
+        cells = []
+        for n in names:
+            part = res[n][res[n].year == y]
+            s = stats(part.ret)
+            cells.append(f"{10 * part.ret.sum():+.1f} ({s['n']}, {s['win']:.0f})")
+        lines.append(f"| {y} | {sp:+.1f} | " + " | ".join(cells) + " |")
+    for label, cond in (("2016-2022 (choose)", lambda t: t.year <= 2022), ("2023+ (check)", lambda t: t.year >= 2023)):
+        cells = []
+        for n in names:
+            part = res[n][[cond(t) for t in res[n].entry_time]]
+            s = stats(part.ret)
+            yrs = part.year.nunique() or 1
+            cells.append(f"{10 * part.ret.sum() / yrs:+.1f}/yr ({s['n']}, {s['win']:.0f}, t {s['t']:.1f})")
+        lines.append(f"| **{label}** | | " + " | ".join(cells) + " |")
     out = "\n".join(lines)
     print(out)
     (ROOT / "reports" / "longtest.md").write_text(out + "\n")

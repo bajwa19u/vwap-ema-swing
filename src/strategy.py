@@ -36,7 +36,7 @@ class Params:
     confirm: bool = False    # close must also be on the trade side of both lines
     entry: str = "cross"     # cross | cross_or_pb (also first pullback to VWAP while EMA>VWAP)
     exit: str = "cross"      # cross: EMA back through VWAP | close_vwap: close back through VWAP
-    regime: str = ""         # "" | spy50: SPY above its 50-day SMA | spyvw: SPY EMA above SPY VWAP
+    regime: str = ""         # "+"-joined: spyvw (SPY EMA above SPY VWAP), spyN (SPY above its N-day SMA)
     rs: int = 0              # 0 = off, else N-day return must beat SPY's
     dtrend: int = 0          # 0 = off, else close above own N-day SMA (daily closes)
     week_grace: int = 0      # ignore cross-back exits in the first N bars of the week (VWAP just reset)
@@ -122,12 +122,15 @@ def indicators(df: pd.DataFrame, p: Params, market: pd.DataFrame | None = None) 
         ok_s &= d["close"] < sma
     if (p.regime or p.rs) and market is not None:
         m = resample(market, p.tf).reindex(d.index).ffill()
-        if p.regime == "spy50":
-            bull = m["close"] > _sma_daily_prev(m, 50)
-        elif p.regime == "spyvw":
-            bull = m["close"].ewm(span=p.ema, adjust=False).mean() > _vwap(m, p.vwap)
-        else:
-            bull = None
+        bull = None
+        for part in filter(None, p.regime.split("+")):  # e.g. "spyvw+spy200": all must hold
+            if part == "spyvw":
+                b = m["close"].ewm(span=p.ema, adjust=False).mean() > _vwap(m, p.vwap)
+            elif part.startswith("spy") and part[3:].isdigit():  # SPY above its N-day SMA
+                b = m["close"] > _sma_daily_prev(m, int(part[3:]))
+            else:
+                raise ValueError(part)
+            bull = b if bull is None else bull & b
         if bull is not None:
             ok_l &= bull
             ok_s &= ~bull
