@@ -53,12 +53,18 @@ def main(sessions: int = 5, dry: bool = False, warmup: int = 10, delay: float = 
             evs, hrs = step(t_bar)
             ts = (bar_close(t_bar) + pd.Timedelta(minutes=17)).isoformat()
             for e in evs:
-                cards.append(card_for(e, ts))
+                c = card_for(e, ts)
+                c["title"] = f"⏪ REPLAY {d:%a %b %-d} · " + c["title"]
+                cards.append(c)
                 today.append(e)
                 if e["kind"] == "exit":
                     week.append(e["ret"])
         close_ts = (d + pd.Timedelta(hours=16, minutes=20)).isoformat()
-        cards.append(recap.build(d, today, state, hrs, hrs[msym], p, list(week), close_ts))
+        rc = recap.build(d, today, state, hrs, hrs[msym], p, list(week), close_ts)
+        rc["title"] = "⏪ REPLAY · " + rc["title"]
+        cards.append(rc)
+    cards.append(discord.info_card("⏹ End of replay",
+                 "Everything above was a replay of past sessions. Live signals and the daily recap continue from here."))
     for c in cards:
         print(c["title"], "|", (c.get("description") or "")[:110].replace("\n", " "))
         if not dry:
