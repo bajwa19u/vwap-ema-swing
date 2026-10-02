@@ -1,0 +1,2 @@
+kind,strategy,t,side,price,stop,bar
+entry,EMA21 x Weekly VWAP,MSTR,1,159.54,140.50365907935355,2026-10-02 11:30:00-04:00
