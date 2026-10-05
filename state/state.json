@@ -1,29 +1,4 @@
 {
- "EMA21 x Weekly VWAP:SHOP": {
-  "side": 1,
-  "price": 138.555,
-  "stop": 124.24584245124512,
-  "entry_time": "2026-09-28 10:30:00-04:00",
-  "signal_time": "2026-09-28 10:30:00-04:00",
-  "option": null
- },
- "EMA21 x Weekly VWAP:MSTR": {
-  "side": 1,
-  "price": 159.54,
-  "stop": 140.50365907935355,
-  "entry_time": "2026-10-02 12:30:00-04:00",
-  "signal_time": "2026-10-02 12:30:00-04:00",
-  "option": {
-   "symbol": "MSTR261023C00135000",
-   "expiry": "2026-10-23",
-   "dte": 21,
-   "strike": 135.0,
-   "delta": 0.86,
-   "mid": 26.51,
-   "spread_pct": 5.7,
-   "iv": 70.0
-  }
- },
  "EMA21 x Weekly VWAP:SMCI": {
   "side": 1,
   "price": 43.04,
