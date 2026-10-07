@@ -78,6 +78,36 @@ def evaluate(h: pd.DataFrame, mkt: pd.DataFrame, p: Params, cur: dict | None, ev
 
 
 EVENTS = ROOT / "state" / "events.csv"
+# One fixed column set for every event. The log used to be appended with the
+# columns of whatever came first (entries: 7), so exit rows (11 fields) landed
+# under the wrong header and the daily recap could not read the file (5 Oct 2026).
+EVENT_COLS = ["kind", "strategy", "t", "side", "price", "stop", "bar", "entry", "ret", "days", "why", "entry_time"]
+_LEGACY = {"entry": ["kind", "strategy", "t", "side", "price", "stop", "bar"],
+           "exit": ["kind", "strategy", "t", "side", "entry", "price", "ret", "days", "why", "bar", "entry_time"]}
+
+
+def read_events() -> pd.DataFrame:
+    """Every event, whatever shape it was written in."""
+    import csv
+    if not EVENTS.exists():
+        return pd.DataFrame(columns=EVENT_COLS)
+    rows = []
+    with EVENTS.open(newline="") as f:
+        r = csv.reader(f)
+        header = next(r, None) or EVENT_COLS
+        for row in r:
+            if not row:
+                continue
+            keys = header if len(row) == len(header) else _LEGACY.get(row[0], header)
+            rows.append(dict(zip(keys, row)))
+    return pd.DataFrame(rows).reindex(columns=EVENT_COLS)
+
+
+def append_events(new: pd.DataFrame) -> None:
+    """Rewrite the log in the fixed column set with the new events added."""
+    out = pd.concat([read_events(), new.reindex(columns=EVENT_COLS)], ignore_index=True)
+    EVENTS.parent.mkdir(exist_ok=True)
+    out.to_csv(EVENTS, index=False)
 
 
 def bar_close(t: pd.Timestamp) -> pd.Timestamp:
@@ -155,7 +185,7 @@ def run(dry: bool = False) -> None:
         STATE.write_text(json.dumps(state, indent=1, default=str))
         if evs:
             log = pd.DataFrame([{k: v for k, v in e.items() if k != "option"} for e in evs])
-            log.to_csv(EVENTS, mode="a", header=not EVENTS.exists(), index=False)
+            append_events(log)
             ex = log[log.kind == "exit"]
             if len(ex):
                 ex.rename(columns={"t": "ticker", "price": "exit", "why": "reason", "bar": "exit_time"})[

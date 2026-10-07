@@ -143,3 +143,22 @@ def test_card_labels():
     assert "STOP LOSS" in discord.exit_card("MU", 1, 100, 97, -0.03, 2.0, "cross")["title"]
     c = discord.recap_card("Mon, Sep 28", [{"t": "MU"}], [{"t": "ARM", "ret": 0.02}], [], 0.5, True, [0.02])
     assert "$" not in str(c) and "Daily Recap" in c["title"]
+
+
+def test_the_event_log_reads_old_mixed_rows_and_writes_one_shape(tmp_path, monkeypatch):
+    """5 Oct 2026: exit rows (11 fields) under a 7-column entry header broke the recap."""
+    import pandas as pd
+    from src import scanner as sc
+    f = tmp_path / "events.csv"
+    f.write_text("kind,strategy,t,side,price,stop,bar\n"
+                 "entry,S,MSTR,1,159.54,140.5,2026-10-02 11:30:00-04:00\n"
+                 "exit,S,MSTR,1,159.54,160.435,0.0056,3.0,cross,2026-10-05 11:30:00-04:00,2026-10-02 12:30:00-04:00\n")
+    monkeypatch.setattr(sc, "EVENTS", f)
+    ev = sc.read_events()
+    ex = ev[ev.kind == "exit"].iloc[0]
+    assert float(ex.ret) == 0.0056 and ex.why == "cross" and ex.bar.startswith("2026-10-05")
+    assert float(ev[ev.kind == "entry"].iloc[0].price) == 159.54
+    sc.append_events(pd.DataFrame([{"kind": "entry", "strategy": "S", "t": "AMD", "side": 1, "price": 600.0,
+                                    "stop": 570.0, "bar": "2026-10-07 10:30:00-04:00"}]))
+    assert f.read_text().splitlines()[0] == ",".join(sc.EVENT_COLS)
+    assert len(pd.read_csv(f)) == 3                       # a plain read works again

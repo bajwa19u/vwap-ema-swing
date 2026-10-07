@@ -9,7 +9,7 @@ from zoneinfo import ZoneInfo
 import pandas as pd
 
 from src import alpaca, discord
-from src.scanner import EVENTS, ROOT, complete_hours, load_cfg
+from src.scanner import EVENTS, ROOT, complete_hours, load_cfg, read_events
 from src.strategy import Params, indicators
 
 NY = ZoneInfo("America/New_York")
@@ -42,7 +42,7 @@ def main(force: bool = False) -> None:
         print("not after the close, or already posted today")
         return
     state = json.loads((ROOT / "state" / "state.json").read_text()) if (ROOT / "state" / "state.json").exists() else {}
-    ev = pd.read_csv(EVENTS) if EVENTS.exists() else pd.DataFrame(columns=["kind", "bar", "ret", "t"])
+    ev = read_events()
     ev["day"] = ev["bar"].astype(str).str[:10]
     monday = (pd.Timestamp(today) - pd.Timedelta(days=pd.Timestamp(today).weekday())).date().isoformat()
     week = ev[(ev.kind == "exit") & (ev.day >= monday)]["ret"].astype(float).tolist()
