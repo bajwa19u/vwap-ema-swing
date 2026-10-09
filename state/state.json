@@ -1,1 +1,19 @@
-{}
+{
+ "EMA21 x Weekly VWAP:ORCL": {
+  "side": 1,
+  "price": 142.02,
+  "stop": 130.7932446662057,
+  "entry_time": "2026-10-09 15:30:00-04:00",
+  "signal_time": "2026-10-09 15:30:00-04:00",
+  "option": {
+   "symbol": "ORCL261030C00125000",
+   "expiry": "2026-10-30",
+   "dte": 21,
+   "strike": 125.0,
+   "delta": 0.85,
+   "mid": 18.34,
+   "spread_pct": 1.6,
+   "iv": 54.2
+  }
+ }
+}
