@@ -13,6 +13,7 @@ GREEN, RED, GREY, BLUE, GOLD = 0x2ECC71, 0xE74C3C, 0x95A5A6, 0x5865F2, 0xF1C40F
 WHY = {"cross": "trend flipped (EMA back under VWAP)", "stop": "protective stop hit", "target": "target hit",
        "time": "time stop", "reset": "signal no longer valid", "earnings": "closed ahead of earnings"}
 FOOTER = "VWAP x EMA · 1h swing · not financial advice"
+DISCLAIMER = "Signals only, not financial advice"
 
 
 def _f(x) -> str:
@@ -38,17 +39,24 @@ def contract_text(t: str, side: int, price: float, opt: dict | None) -> str:
     return f"{t} ~{k:g}{kind} · 3-4 weeks out · ~0.85 delta"
 
 
+def _sign(x: float) -> str:
+    return f"{x:+.2f}%".replace("-", "−")
+
+
+# House style, shared with the day-trade channels (tradingbot/src/cards.py):
+#   🔔 BUY CALLS / BUY PUTS in one neutral colour; 🟢 SOLD for a profit, 🔴 SOLD for a loss;
+#   a daily report with today, the last 5 days, last week and month to date.
 def entry_card(t: str, side: int, price: float, stop: float | None, contract: str,
                bar_label: str, ts: str | None = None) -> dict:
-    call = side > 0
-    card = {"title": f"{'🟢 BUY CALL' if call else '🔴 BUY PUT'}  ·  {t}",
-            "color": GREEN if call else RED,
-            "description": (f"**Entry** {_f(price)}   **Stop** {_f(stop)}\n"
-                            f"**Contract** {contract}\n"
-                            f"**Why** 1h EMA21 crossed {'above' if call else 'below'} the weekly VWAP, market trend "
-                            f"{'up' if call else 'down'}.\n"
-                            f"**Plan** hold until the trend flips. Typical hold 3-5 days."),
-            "footer": {"text": f"{FOOTER} · {bar_label}"}}
+    kind = "CALLS" if side > 0 else "PUTS"
+    card = {"title": f"🔔 BUY {kind} · {t}", "color": BLUE,
+            "description": (f"Hourly 21-EMA crossed {'above' if side > 0 else 'below'} the weekly VWAP with the market "
+                            f"trend {'up' if side > 0 else 'down'}."),
+            "fields": [{"name": "Entry", "value": _f(price), "inline": True},
+                       {"name": "Stop", "value": _f(stop), "inline": True},
+                       {"name": "Exit plan", "value": "When the trend turns · typically 3–5 days", "inline": True},
+                       {"name": "Suggested contract", "value": contract, "inline": False}],
+            "footer": {"text": f"Swing · {bar_label} · Levels are the stock price · {DISCLAIMER}"}}
     if ts:
         card["timestamp"] = ts
     return card
@@ -57,52 +65,71 @@ def entry_card(t: str, side: int, price: float, stop: float | None, contract: st
 def exit_card(t: str, side: int, entry: float, exit_: float, ret: float, days: float,
               why: str, ts: str | None = None) -> dict:
     won = ret > 0
-    card = {"title": f"{'✅ TAKE PROFIT' if won else '🛑 STOP LOSS'}  ·  {t}",
+    kind = "CALLS" if side > 0 else "PUTS"
+    card = {"title": f"{'🟢' if won else '🔴'} SOLD · {t} {kind} · {_sign(100 * ret)}",
             "color": GREEN if won else RED,
-            "description": (f"**{_pct(100 * ret)}** on the stock  ·  {_f(entry)} → {_f(exit_)}\n"
-                            f"**Held** {days:.1f} days  ·  {WHY.get(why, why)}\n"
-                            f"Close the {'call' if side > 0 else 'put'}."),
-            "footer": {"text": FOOTER}}
+            "fields": [{"name": "Bought", "value": _f(entry), "inline": True},
+                       {"name": "Sold", "value": _f(exit_), "inline": True},
+                       {"name": "Held", "value": f"{days:.1f} days", "inline": True},
+                       {"name": "Result", "value": f"**{_sign(100 * ret)}** on the stock · {_sign(10 * ret)} of account",
+                        "inline": True},
+                       {"name": "Closed by", "value": WHY.get(why, why).capitalize(), "inline": True}],
+            "footer": {"text": f"Swing · Close the {kind.lower()[:-1]} position · {DISCLAIMER}"}}
     if ts:
         card["timestamp"] = ts
     return card
 
 
+def windows(ledger, day) -> list[tuple[str, dict]]:
+    """Today, the last 5 sessions, last calendar week (Mon-Fri), month to date.
+    ledger: closed trades with exit_time and ret (fraction); account = 10% a position."""
+    import datetime as dt
+    import pandas as pd
+    if ledger is None or not len(ledger):
+        ledger = pd.DataFrame(columns=["exit_time", "ret"])
+    d = pd.to_datetime(ledger["exit_time"].astype(str).str[:10]).dt.date
+    acct = ledger["ret"].astype(float) * 10                     # % of account at 10% per position
+
+    def st(m):
+        r = acct[m]
+        w = int((r > 0).sum())
+        return {"n": len(r), "won": w, "lost": len(r) - w, "total": float(r.sum()), "win": 100 * w / len(r) if len(r) else None}
+    sessions = sorted({x for x in d if x <= day} | {day})
+    monday = day - dt.timedelta(days=day.weekday())
+    lw0, lw1 = monday - dt.timedelta(days=7), monday - dt.timedelta(days=3)
+    return [("Today", st(d == day)), ("Last 5 days", st(d.isin(set(sessions[-5:])))),
+            (f"Last week ({lw0:%-d}–{lw1:%-d %b})", st((d >= lw0) & (d <= lw1))),
+            (f"{day:%B} to date", st((d >= day.replace(day=1)) & (d <= day)))]
+
+
+def _window_value(s: dict) -> str:
+    if not s["n"]:
+        return "No closed trades"
+    return f"**{_sign(s['total'])}**\nWin rate {s['win']:.0f}%\n{s['won']} won · {s['lost']} lost"
+
+
 def recap_card(day_label: str, opened: list[dict], closed: list[dict], open_pos: list[dict],
                spy_pct: float | None, trend_on: bool | None, wtd: list[float] | None = None,
-               ts: str | None = None) -> dict:
+               ts: str | None = None, ledger=None, day=None) -> dict:
     """opened: {t}; closed: {t, ret}; open_pos: {t, unreal}. Returns are fractions."""
-    wins = [c for c in closed if c["ret"] > 0]
     realized = sum(c["ret"] for c in closed)
-    parts = []
-    if opened:
-        parts.append(f"{len(opened)} new call{'s' if len(opened) > 1 else ''}: {', '.join(o['t'] for o in opened)}.")
-    else:
-        parts.append("No new entries.")
-    tp = [f"{c['t']} ({_pct(100 * c['ret'])})" for c in closed if c["ret"] > 0]
-    sl = [f"{c['t']} ({_pct(100 * c['ret'])})" for c in closed if c["ret"] <= 0]
-    if tp:
-        parts.append("Took profit on " + ", ".join(tp) + ".")
-    if sl:
-        parts.append("Cut " + ", ".join(sl) + ".")
+    lines = [f"{'🟢' if c['ret'] > 0 else '🔴'} **{c['t']}** Calls sold  ·  **{_sign(100 * c['ret'])}** on the stock"
+             for c in closed]
+    lines += [f"🔔 **{o['t']}** Calls bought" for o in opened]
+    lines += [f"⏳ **{q['t']}** open  ·  {_sign(100 * q['unreal'])}" for q in open_pos]
+    market = ""
     if spy_pct is not None:
-        mood = "trend filter on, entries allowed" if trend_on else "trend filter off, no new entries"
-        parts.append(f"SPY {_pct(spy_pct)} on the day; {mood}.")
-    fields = [
-        {"name": "Closed", "value": f"{len(wins)} win{'s' * (len(wins) != 1)} · {len(closed) - len(wins)} loss"
-                                    f"{'es' * (len(closed) - len(wins) != 1)}" if closed else "none", "inline": True},
-        {"name": "Win rate", "value": f"{100 * len(wins) / len(closed):.0f}%" if closed else "-", "inline": True},
-        {"name": "Realized", "value": f"{_pct(100 * realized)} stock · {_pct(10 * realized)} account" if closed else "-",
-         "inline": True},
-        {"name": "Open positions", "value": "  ".join(f"{p['t']} {_pct(100 * p['unreal'])}" for p in open_pos) or "flat"},
-    ]
-    if wtd is not None:
-        w = [r for r in wtd]
-        fields.append({"name": "Week so far", "value": (f"{sum(r > 0 for r in w)}W / {sum(r <= 0 for r in w)}L · "
-                                                         f"{_pct(10 * sum(w))} account") if w else "no closed trades",
-                       "inline": True})
-    card = {"title": f"📊 Daily Recap  ·  {day_label}", "color": GOLD, "description": " ".join(parts),
-            "fields": fields, "footer": {"text": "Account % assumes 10% of the account per position · " + FOOTER}}
+        market = (f"\n\nSPY {_sign(spy_pct)} on the day · trend filter "
+                  f"{'on: new entries allowed' if trend_on else 'off: no new entries'}")
+    fields = ([{"name": nm, "value": _window_value(s), "inline": True} for nm, s in windows(ledger, day)]
+              if day is not None else
+              [{"name": "Today", "value": (f"**{_sign(10 * realized)}** of account\n{sum(c['ret'] > 0 for c in closed)} won · "
+                                          f"{sum(c['ret'] <= 0 for c in closed)} lost") if closed else "No closed trades",
+                "inline": True}])
+    card = {"title": "📊 Swing · Daily Report", "color": GREEN if realized > 0 else RED if realized < 0 else GREY,
+            "description": f"**{day_label}**\n\n" + ("\n".join(lines) if lines else "No trades today.") + market,
+            "fields": fields,
+            "footer": {"text": f"Account % assumes 10% of the account per position · {DISCLAIMER}"}}
     if ts:
         card["timestamp"] = ts
     return card

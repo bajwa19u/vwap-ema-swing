@@ -138,11 +138,11 @@ def test_live_matches_ablation_result():
 
 def test_card_labels():
     from src import discord
-    assert "BUY CALL" in discord.entry_card("MU", 1, 100.0, 90.0, "x", "y")["title"]
-    assert "TAKE PROFIT" in discord.exit_card("MU", 1, 100, 104, 0.04, 2.0, "cross")["title"]
-    assert "STOP LOSS" in discord.exit_card("MU", 1, 100, 97, -0.03, 2.0, "cross")["title"]
+    assert discord.entry_card("MU", 1, 100.0, 90.0, "x", "y")["title"] == "🔔 BUY CALLS · MU"
+    assert discord.exit_card("MU", 1, 100, 104, 0.04, 2.0, "cross")["title"].startswith("🟢 SOLD · MU CALLS")
+    assert discord.exit_card("MU", 1, 100, 97, -0.03, 2.0, "cross")["title"].startswith("🔴 SOLD · MU CALLS")
     c = discord.recap_card("Mon, Sep 28", [{"t": "MU"}], [{"t": "ARM", "ret": 0.02}], [], 0.5, True, [0.02])
-    assert "$" not in str(c) and "Daily Recap" in c["title"]
+    assert "$" not in str(c) and c["title"] == "📊 Swing · Daily Report"
 
 
 def test_the_event_log_reads_old_mixed_rows_and_writes_one_shape(tmp_path, monkeypatch):
@@ -162,3 +162,16 @@ def test_the_event_log_reads_old_mixed_rows_and_writes_one_shape(tmp_path, monke
                                     "stop": 570.0, "bar": "2026-10-07 10:30:00-04:00"}]))
     assert f.read_text().splitlines()[0] == ",".join(sc.EVENT_COLS)
     assert len(pd.read_csv(f)) == 3                       # a plain read works again
+
+
+def test_the_swing_report_has_the_same_four_windows_as_the_day_trade_channels():
+    import datetime as dt
+    import pandas as pd
+    from src import discord
+    led = pd.DataFrame({"exit_time": ["2026-10-05 11:30:00-04:00", "2026-10-07 12:30:00-04:00", "2026-10-13 10:30:00-04:00"],
+                        "ret": [0.13, -0.02, 0.01]})
+    c = discord.recap_card("Tuesday 13 October 2026", [], [{"t": "MU", "ret": 0.01}], [], 0.4, True,
+                           ledger=led, day=dt.date(2026, 10, 13))
+    names = [f["name"] for f in c["fields"]]
+    assert names == ["Today", "Last 5 days", "Last week (5–9 Oct)", "October to date"]
+    assert "Win rate" in c["fields"][3]["value"] and "|" not in str(c)

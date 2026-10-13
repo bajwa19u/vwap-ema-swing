@@ -29,7 +29,10 @@ def build(day: pd.Timestamp, day_events: list[dict], state: dict, hours: dict, m
     daily = mkt["close"].groupby(mkt.index.normalize()).last()
     spy_pct = 100 * (daily.iloc[-1] / daily.iloc[-2] - 1) if len(daily) > 1 else None
     trend_on = bool(indicators(mkt, Params(ema=p.ema, vwap=p.vwap))["above"].iloc[-1])
-    return discord.recap_card(f"{day:%a, %b %-d}", opened, closed, open_pos, spy_pct, trend_on, week_rets, ts)
+    led_file = ROOT / "state" / "ledger.csv"
+    ledger = pd.read_csv(led_file) if led_file.exists() else None
+    return discord.recap_card(f"{day:%A %-d %B %Y}", opened, closed, open_pos, spy_pct, trend_on, week_rets, ts,
+                              ledger=ledger, day=day.date())
 
 
 def main(force: bool = False) -> None:
