@@ -48,8 +48,12 @@ def bars(symbols, tf: str) -> dict:
     params = {"symbols": ",".join(symbols), "timeframe": tf, "adjustment": "all", "start": START.isoformat(),
               "end": END.isoformat(), "limit": 10000, "feed": "sip"}
     rows = {s: [] for s in symbols}
+    pages = 0
     while True:
         js = alpaca._get(f"{alpaca.DATA}/v2/stocks/bars", params)
+        pages += 1
+        if pages % 10 == 0:
+            print(f"{tf}: {pages} pages", flush=True)
         for s, b in (js.get("bars") or {}).items():
             rows[s].extend(b)
         if not js.get("next_page_token"):
@@ -130,15 +134,22 @@ def main():
     p = Params(**s0["params"])
     msym = cfg.get("market", "SPY")
     syms = sorted({msym, *u["pool"]})
+    import time as _t
+    t0 = _t.time()
     d30 = bars(syms, "30Min")
+    print(f"30Min bars in {_t.time() - t0:.0f}s", flush=True)
     hours = {t: complete_hours(df) for t, df in d30.items() if len(df) > 1000}
     mkt = hours.pop(msym)
     members = monthly_members(hours, u["top_k"], u["vol_lookback_days"])
+    print(f"members in {_t.time() - t0:.0f}s", flush=True)
     ev = earnings.load(sorted(hours))
+    print(f"earnings in {_t.time() - t0:.0f}s", flush=True)
     tr = backtest(p, hours, mkt, members, ev)
+    print(f"backtest {len(tr)} trades in {_t.time() - t0:.0f}s", flush=True)
     tr["period"] = tr.entry_time.map(period)
     tr = tr[tr.entry_time >= pd.Timestamp("2024-05-01", tz=NY)].sort_values("entry_time").reset_index(drop=True)
     q = bars(syms, "15Min")
+    print(f"15Min bars in {_t.time() - t0:.0f}s", flush=True)
     tr["ret15"], tr["ret30"] = delayed(tr, q, 15), delayed(tr, q, 30)
 
     L = ["# Swing audit: the live rule on the live data path (Alpaca SIP), and the 17-minute delay", "",

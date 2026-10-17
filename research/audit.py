@@ -19,7 +19,7 @@ import pandas as pd
 
 from common import ROOT, SPLIT, Params, load, noise_floor, stats
 from common import _EARN
-from final import CFG, K, LB, P, bs_call, option_ret, strike_for_delta
+from final import CFG, K, LB, P, option_ret, option_ret_v1
 from volsel import EXCLUDE, vol_ranks
 from src.strategy import simulate
 
@@ -151,21 +151,6 @@ def by_period(tr) -> list:
     return L
 
 
-def option_live_spec(r, rv) -> float:
-    """The live contract (config options: delta_target, dte_min..dte_max) priced
-    with Black-Scholes, IV = 1.10 x 20-day realized vol at entry and at exit,
-    1% half-spread + 0.5% slippage each way (research/ablation.py's costs for
-    0.85 delta). ESTIMATE - no option prices were observed."""
-    dte = (OPT["dte_min"] + OPT["dte_max"]) / 2
-    t0 = dte / 365
-    v0 = max(0.15, 1.10 * rv)
-    k = strike_for_delta(r.entry, t0, v0, OPT["delta_target"])
-    c0 = bs_call(r.entry, k, t0, v0) * 1.015
-    v1 = max(0.15, 1.10 * (r.rv_exit if r.rv_exit == r.rv_exit else rv))
-    c1 = bs_call(r.exit, k, max(t0 - r.days / 365, 0), v1) * 0.985
-    return c1 / c0 - 1
-
-
 def main():
     L = ["# Swing audit: the live rule on Yahoo 1h bars (BEFORE)", "",
          f"Rule (config.yaml): `{P.key()}`", f"Universe: top {K} of {len(POOL)} by {LB}-day realized volatility, re-ranked monthly.",
@@ -264,8 +249,8 @@ def main():
         rv[t] = d.pct_change().rolling(20).std() * math.sqrt(252)
     base["rv"] = [rv[t].asof(e.normalize() - pd.Timedelta(days=1)) for t, e in zip(base.ticker, base.entry_time)]
     base["rv_exit"] = [rv[t].asof(e.normalize() - pd.Timedelta(days=1)) for t, e in zip(base.ticker, base.exit_time)]
-    base["opt_published"] = [option_ret(r, r.rv) for r in base.itertuples()]
-    base["opt_live"] = [option_live_spec(r, r.rv) for r in base.itertuples()]
+    base["opt_published"] = [option_ret_v1(r, r.rv) for r in base.itertuples()]
+    base["opt_live"] = [option_ret(r, r.rv, r.rv_exit) for r in base.itertuples()]
     L += ["## 6. Options: what the reports modelled vs what the live scanner suggests", "",
           "| | reports/backtest.md + README (research/final.py) | research/ablation.py (chose the live spec) | live scanner (config.yaml + src/alpaca.py) |",
           "|---|---|---|---|",
