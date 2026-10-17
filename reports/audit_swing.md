@@ -12,7 +12,9 @@ it trails simply holding the same names (+62.5%, with a -37.3% drawdown); three 
 make 46% of the profit; the 25-name pool was written in 2026 with hindsight; and the swing repo's own
 2016-2026 check (`longtest.md`, never used for choosing) shows losing years in 2018 and 2022 and trailing
 SPY in 2016-2020. Option returns are Black-Scholes estimates only. Recommendation: keep it running as
-signals; treat the holdout as optimistic; validate on the live-data record before sizing up.
+signals; treat the holdout as optimistic; validate on the live-data record before sizing up. On the
+scanner's own data (Alpaca SIP) the holdout is +1.65% a trade (225 trades, PF 1.90), and the
+17-minute signal delay costs about 0.04% a trade.
 
 ## Before / After
 
@@ -36,7 +38,23 @@ period = holdout 2025-07-01 to 2026-10-01 (215 trades). Before = After: no strat
 Explore (Nov 2023 - Jun 2025, rules chosen here): 179 trades, 61.5%, +2.38%. Reproduction of
 `reports/backtest.md`: exact (179 / 61.5% / +2.38%, 215 / 56.7% / +1.48% on data cut at 1 Oct).
 
-LIVE_DATA_SECTION
+## On the scanner's own data (Alpaca SIP), and the 17-minute delay
+
+| period | trades | win % | avg net per trade | PF | filled +15 min late | +30 min late |
+|---|---|---|---|---|---|---|
+| explore | 178 | 62.9% | +2.42% | 2.48 | +2.42% | +2.38% |
+| holdout | 225 | 57.3% | +1.65% | 1.90 | +1.61% | +1.62% |
+| forward (2-16 Oct) | 3 | 66.7% | -2.22% | 0.17 | -2.37% | -2.41% |
+
+- **The delay costs about 0.04% a trade.** Signals reach Discord ~17 min after the price the backtest
+  fills at; re-pricing every entry and non-stop exit on SIP 15-minute bars barely moves the result.
+- **The two data sources disagree on about 1 signal in 5:** 312 trades on both, 83 Yahoo-only, 94
+  SIP-only (both groups profitable). Hourly volume differs, so the weekly VWAP crosses differ. That is
+  why the live bot took MSTR on 2 Oct and ORCL on 9 Oct, which the research data does not have. The
+  live-data result is no worse than the research one.
+- **Ledger prices vs a +15-minute fill:** MSTR +0.56% vs +0.48%, SHOP +13.43% vs +14.30%, SMCI +0.94%
+  vs +0.67%, ORCL -7.90% vs -7.97% (stop). The ledger is close to what was tradeable.
+
 
 ## What was wrong (with evidence) and what changed
 
@@ -55,7 +73,7 @@ No strategy logic changed. Shorts stay off; the settled list in CLAUDE.md was no
 ## Remaining risks
 
 - Survivorship and hindsight in the 25-name pool; the edge leans on 3 names.
-- Research and live use different data sources (Yahoo vs Alpaca SIP); see the live-data section.
+- Research and live use different data sources (Yahoo vs Alpaca SIP); about 20% of signals differ, with similar results.
 - Bear years: 2018 and 2022 lost money in the long-history check (owner accepted this).
 - Options are modelled, not observed; the live scanner uses the indicative (delayed) option feed.
 - The forward sample is 1-4 trades.
