@@ -1,6 +1,6 @@
 """Final backtest of the live configuration: dynamic top-10-by-volatility
 universe, portfolio equity (10% of equity per position), buy-and-hold
-comparisons, and an options estimate (Black-Scholes, IV ~ 1.15 x realized).
+comparisons, and an options ESTIMATE of the live contract (see option_ret).
 Writes reports/backtest.md and reports/equity.png."""
 import math
 import sys
@@ -35,12 +35,29 @@ def strike_for_delta(s, t, v, delta, r=0.04):
     return s * math.exp(-(d1 * v * math.sqrt(t)) + (r + v * v / 2) * t)
 
 
-def option_ret(row, rv, dte=30, delta=0.65, spread=0.03):
+def option_ret_v1(row, rv, dte=30, delta=0.65, spread=0.03):
+    """The model behind reports/backtest.md up to 1 Oct 2026 (0.65 delta, 30 DTE,
+    fixed IV). Kept for comparison; it is not the contract the scanner suggests."""
     t0 = dte / 365
     v = max(0.15, 1.15 * rv)
     k = strike_for_delta(row.entry, t0, v, delta)
     c0 = bs_call(row.entry, k, t0, v) * (1 + spread / 2)
     c1 = bs_call(row.exit, k, max(t0 - row.days / 365, 0), v) * (1 - spread / 2)
+    return c1 / c0 - 1
+
+
+def option_ret(row, rv, rv_exit=None):
+    """ESTIMATE of the live contract: config.yaml `options` (delta_target, the
+    middle of dte_min..dte_max), Black-Scholes with IV = 1.10 x 20-day realized
+    vol at entry and re-marked at exit, 1% half-spread + 0.5% slippage each way
+    (research/ablation.py's costs for 0.85 delta). No option prices observed."""
+    o = CFG["options"]
+    t0 = (o["dte_min"] + o["dte_max"]) / 2 / 365
+    v0 = max(0.15, 1.10 * rv)
+    k = strike_for_delta(row.entry, t0, v0, o["delta_target"])
+    c0 = bs_call(row.entry, k, t0, v0) * 1.015
+    v1 = max(0.15, 1.10 * (rv_exit if rv_exit is not None and rv_exit == rv_exit else rv))
+    c1 = bs_call(row.exit, k, max(t0 - row.days / 365, 0), v1) * 0.985
     return c1 / c0 - 1
 
 
@@ -56,8 +73,9 @@ def main():
         c = load(t)["close"]
         d = c.groupby(c.index.normalize()).last()
         rv[t] = d.pct_change().rolling(20).std() * math.sqrt(252)
-    tr["rv"] = [rv[t].asof(e.normalize()) for t, e in zip(tr.ticker, tr.entry_time)]
-    tr["opt_ret"] = [option_ret(r, r.rv) for r in tr.itertuples()]
+    tr["rv"] = [rv[t].asof(e.normalize() - pd.Timedelta(days=1)) for t, e in zip(tr.ticker, tr.entry_time)]
+    tr["rv_exit"] = [rv[t].asof(e.normalize() - pd.Timedelta(days=1)) for t, e in zip(tr.ticker, tr.exit_time)]
+    tr["opt_ret"] = [option_ret(r, r.rv, r.rv_exit) for r in tr.itertuples()]
     tr.to_csv(ROOT / "reports" / "trades.csv", index=False)
 
     # portfolio: each trade gets SLOT of equity at entry; P&L booked at exit

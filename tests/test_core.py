@@ -175,3 +175,9 @@ def test_the_swing_report_has_the_same_four_windows_as_the_day_trade_channels():
     names = [f["name"] for f in c["fields"]]
     assert names == ["Today", "Last 5 days", "Last week (5–9 Oct)", "October to date"]
     assert "Win rate" in c["fields"][3]["value"] and "|" not in str(c)
+
+
+def test_retune_reports_but_never_adopts_on_its_own():
+    """A weekly search of 108 variants must not change the live rule silently."""
+    from src import retune
+    assert retune.ADOPT is False

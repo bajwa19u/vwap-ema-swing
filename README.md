@@ -19,31 +19,36 @@ to stay on.
 | Side | long only (calls, not puts). Shorts lost money in every variant tested |
 | Typical hold | 3-5 days |
 
-### Results (Yahoo 1h bars, Nov 2023 - Oct 2026, 0.05% cost per side)
+### Results (Yahoo 1h bars, trades May 2024 - Oct 2026, 0.05% cost per side)
 
-Rules were chosen on Nov 2023 - Jun 2025 ("explore") and then run untouched on
-Jul 2025 - Sep 2026 ("holdout").
+Rules were chosen on Nov 2023 - Jun 2025 ("explore"); Jul 2025 - Sep 2026 is the
+holdout. The 1 Oct 2026 ablation used the holdout as a veto, so it is no longer
+untouched. Source: `reports/backtest.md`, reproduced exactly by `research/audit.py`
+(`reports/audit_backtest.md`, audit of 17 Oct 2026).
 
 | period | trades | win % | winners / losers | avg profit % per trade | avg vs SPY same window |
 |---|---|---|---|---|---|
-| explore | 283 | 62.2 | 176 / 107 | +2.97 | +2.09 |
-| **holdout** | **316** | **53.5** | **169 / 147** | **+1.23** | **+1.03** |
+| explore | 179 | 61.5 | 110 / 69 | +2.38 | +1.64 |
+| **holdout** | **215** | **56.7** | **122 / 93** | **+1.48** | **+1.40** |
 
 Portfolio, 10% of equity per position, holdout only:
 
 | | total | per year | max drawdown |
 |---|---|---|---|
-| Strategy (shares) | +44.1% | +33.9% | -12.1% |
-| Strategy (calls, estimated) | +32.9% | +25.5% | -24.0% |
+| Strategy (shares) | +35.5% | +27.4% | -6.4% |
 | Holding the same volatile names | +62.5% | +47.4% | -37.3% |
 | SPY buy & hold | +23.2% | +18.2% | -9.1% |
 
-Honest reading: it beats SPY with an edge that survived data it never saw,
-and it is in the market only about 40% of the time. Over this window, simply
-holding the volatile names made more, with more than twice the drawdown.
-Calls are estimated with Black-Scholes (IV = 1.15 x realized vol, 0.65 delta,
-30 DTE, 3% spread); with 3-5 day holds, time decay takes much of the leverage,
-so prefer 0.65-0.75 delta, 3-6 week expiries.
+Honest reading: it beats SPY on the holdout and is in the market about a quarter
+of the time; simply holding the volatile names made more, with a far deeper
+drawdown. The pool was written in 2026 and holds the period's winners, and three
+names make almost half the profit, so treat these numbers as optimistic. The
+research runs on Yahoo bars, the scanner on Alpaca SIP bars; they do not give
+identical signals (`reports/audit_live.md`).
+
+Calls: the scanner suggests ~0.85 delta, 21-30 DTE (config `options`). Option
+returns are ESTIMATES (Black-Scholes, IV = 1.10 x realized vol, 1% half-spread
+plus 0.5% slippage), never observed prices: about +5.6% a trade on the holdout.
 
 ### Changelog
 - 2026-10-01: full ablation study (reports/ablation.md). Kept: entry needs close above VWAP (holdout Sharpe 1.67 → 1.97,
@@ -64,13 +69,13 @@ so prefer 0.65-0.75 delta, 3-6 week expiries.
 | workflow | when | what |
 |---|---|---|
 | `scan.yml` | :47 past each hour, market days | new entries / exits to Discord, state committed to `state/` |
-| `retune.yml` | Saturdays | re-tests live rules vs 108 nearby variants on ~3 years of fresh Alpaca data; adopts a challenger only if it wins on both the full history and the last 12 months by 0.15% per trade; posts the weekly scorecard |
+| `retune.yml` | Saturdays | re-tests live rules vs 108 nearby variants on ~3 years of fresh Alpaca data and REPORTS a challenger that wins on both the full history and the last 12 months by 0.15% per trade; it never changes config.yaml itself (`retune.ADOPT = False`); posts the weekly scorecard |
 | `tests.yml` | every push | unit tests, including a no-lookahead check |
 | `hello.yml` | manual | test card to the Discord channel |
 
 Data: Alpaca free plan SIP bars (15-minute delay), so signals arrive ~17
 minutes after each hourly close. Options suggestions come from Alpaca's option
-chain snapshot (nearest to 0.65 delta, 21-45 days, tightest spread).
+chain snapshot (nearest to 0.85 delta, 21-30 days, spread under 8% of mid).
 
 ## Setup (once)
 

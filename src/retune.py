@@ -28,6 +28,13 @@ NEIGHBORS = dict(ema=[13, 21, 34], min_bars=[0, 7, 14], vwap=["week", "roll35"],
 MARGIN = 0.15        # avg profit % per trade a challenger must add, in both windows
 MIN_RECENT_N = 100   # trades in the last 12 months
 MIN_RECENT_T = 2.0   # t-stat of the challenger's last-12-month trades
+# Report a challenger; never adopt it on its own (audit, 17 Oct 2026). The
+# margin is 0.15% a trade against a 12-month standard error of ~0.5%, and the
+# best of 108 variants beats the noise floor (t ~3.1) by luck alone, so an
+# automatic swap would change the live rule silently on noise. The owner
+# reads the report and changes config.yaml by hand if a challenger keeps
+# winning on data it was not chosen on.
+ADOPT = False
 
 
 def stats(r) -> dict:
@@ -101,11 +108,15 @@ def main(dry: bool = False) -> None:
 
     text = (ROOT / "config.yaml").read_text()
     changed = ""
+    proposed = ""
     if winner is not None:
         new = {k: getattr(winner.p, k) for k in NEIGHBORS if getattr(winner.p, k) != getattr(inc, k)}
-        text = set_params(text, new)
-        changed = ", ".join(f"{k}: {getattr(inc, k)!r} → {v!r}" for k, v in new.items())
-        I = winner
+        diff = ", ".join(f"{k}: {getattr(inc, k)!r} → {v!r}" for k, v in new.items())
+        if ADOPT:
+            text = set_params(text, new)
+            changed, I = diff, winner
+        else:
+            proposed = diff
     live_stats = (f"Last 12 months: {int(I.r_n)} trades, win {I.r_win:.0f}%, avg {I.r_avg:+.2f}% per trade "
                   f"(shares), avg hold {I.days:.1f} days")
     text = re.sub(r'^(\s+)stats: .*$', lambda m: f'{m.group(1)}stats: "{live_stats}"', text, count=1, flags=re.M)
@@ -114,12 +125,15 @@ def main(dry: bool = False) -> None:
     top = df.sort_values("r_t", ascending=False).head(8)
     lines = [f"# Retune {date.today()}", "", f"Data through {mkt.index[-1]}. Variants tried: {len(df)}. "
              f"Noise floor t≈{math.sqrt(2 * math.log(len(df))):.2f}.", "",
-             f"Decision: {'CHANGED ' + changed if changed else 'kept the current rules'}", "",
+             f"Decision: {'CHANGED ' + changed if changed else 'kept the current rules'}"
+             + (f" (a challenger cleared the bar but is only reported, ADOPT is off: {proposed})" if proposed else ""), "",
              f"This month's names: {', '.join(active)}", "",
-             "| ema | min_bars | vwap | regime | full n | full win % | full avg % | 12m n | 12m win % | 12m avg % | 12m t |",
-             "|---|---|---|---|---|---|---|---|---|---|---|"]
+             "| ema | min_bars | vwap | regime | week_grace | full n | full win % | full avg % | 12m n | 12m win % | 12m avg % | 12m t |",
+             "|---|---|---|---|---|---|---|---|---|---|---|---|"]
+    if not top.is_inc.any():                       # always show the live row
+        top = pd.concat([top, df[df.is_inc]])
     for r in top.itertuples():
-        lines.append(f"| {r.p.ema} | {r.p.min_bars} | {r.p.vwap} | {r.p.regime or 'none'} | {r.f_n} | {r.f_win:.1f} | "
+        lines.append(f"| {r.p.ema} | {r.p.min_bars} | {r.p.vwap} | {r.p.regime or 'none'} | {r.p.week_grace} | {r.f_n} | {r.f_win:.1f} | "
                      f"{r.f_avg:+.2f} | {r.r_n} | {r.r_win:.1f} | {r.r_avg:+.2f} | {r.r_t:.2f} |"
                      + (" ← live" if r.is_inc else ""))
     report = "\n".join(lines)
@@ -131,7 +145,8 @@ def main(dry: bool = False) -> None:
     out.mkdir(parents=True, exist_ok=True)
     (out / f"{date.today()}.md").write_text(report + "\n")
     msg = (f"{scorecard()}\n\nBacktest, {live_stats.lower()}.\n"
-           f"Rules: {'**updated** (' + changed + ')' if changed else 'unchanged'}.\n"
+           f"Rules: {'**updated** (' + changed + ')' if changed else 'unchanged'}"
+           f"{' - challenger reported, not adopted: ' + proposed if proposed else ''}.\n"
            f"Names this month: {', '.join(active)}")
     discord.post(cfg, discord.info_card("Weekly scorecard", msg))
 
