@@ -1,0 +1,32 @@
+name: audit
+# Profitability audit, live-data half (research/audit_live.py): the live rule
+# on Alpaca SIP bars and the 17-minute signal delay. Runs on pushes to the
+# audit branch that touch it, or by hand. Writes reports/audit_live.*.
+# Posts nothing, trades nothing.
+on:
+  workflow_dispatch:
+  push:
+    branches: [profitability-audit]
+    paths: ["research/audit_live.py", ".github/workflows/audit.yml"]
+permissions: { contents: write }
+concurrency: { group: audit, cancel-in-progress: false }
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with: { ref: "${{ github.ref_name }}" }
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.11", cache: pip }
+      - run: pip install -r requirements.txt
+      - run: python research/audit_live.py
+        env:
+          ALPACA_API_KEY: ${{ secrets.ALPACA_API_KEY }}
+          ALPACA_API_SECRET: ${{ secrets.ALPACA_API_SECRET }}
+      - name: commit
+        if: always()
+        run: |
+          git config user.name "vwap-bot"; git config user.email "bot@users.noreply.github.com"
+          git add reports/audit_live.md reports/audit_live.json reports/audit_live_trades.csv 2>/dev/null || true
+          git diff --cached --quiet || (git commit -m "audit: live data [skip ci]" && git pull --rebase --autostash && git push)
